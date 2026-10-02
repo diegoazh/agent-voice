@@ -48,10 +48,10 @@ def process_start_time(pid):
     return out if result.returncode == 0 and out else None
 
 
-def _read_record(directory):
+def _read_record(directory, pid_file=PID_FILE):
     """Return (pid, start_time) from the PID file; either may be None."""
     try:
-        lines = (Path(directory) / PID_FILE).read_text().splitlines()
+        lines = (Path(directory) / pid_file).read_text().splitlines()
         pid = int(lines[0].strip())
     except (OSError, ValueError, IndexError):
         return None, None
@@ -59,8 +59,8 @@ def _read_record(directory):
     return pid, start
 
 
-def _read_pid(directory):
-    return _read_record(directory)[0]
+def _read_pid(directory, pid_file=PID_FILE):
+    return _read_record(directory, pid_file)[0]
 
 
 def _is_previous_speaker(pid, stored_start, start_time):
@@ -71,9 +71,9 @@ def _is_previous_speaker(pid, stored_start, start_time):
     return current is not None and current == stored_start
 
 
-def _terminate_previous(directory, start_time):
+def _terminate_previous(directory, start_time, pid_file=PID_FILE):
     """SIGTERM a verified previous speaker and wait briefly for it to exit."""
-    pid, stored_start = _read_record(directory)
+    pid, stored_start = _read_record(directory, pid_file)
     if not _is_previous_speaker(pid, stored_start, start_time):
         return False
     try:
@@ -86,35 +86,37 @@ def _terminate_previous(directory, start_time):
     return True
 
 
-def stop(directory=None, *, start_time=None):
+def stop(directory=None, *, start_time=None, pid_file=PID_FILE):
     """Terminate the current speaker, if any. Returns True if one was running."""
     directory = runtime_dir() if directory is None else Path(directory)
     start_time = process_start_time if start_time is None else start_time
-    stopped = _terminate_previous(directory, start_time)
-    pid, stored_start = _read_record(directory)
+    stopped = _terminate_previous(directory, start_time, pid_file)
+    pid, stored_start = _read_record(directory, pid_file)
     if pid is not None and not _is_previous_speaker(pid, stored_start, start_time):
-        (directory / PID_FILE).unlink(missing_ok=True)
+        (directory / pid_file).unlink(missing_ok=True)
     return stopped
 
 
-def _claim(directory, start_time):
+def _claim(directory, start_time, pid=None, pid_file=PID_FILE, lock_file=LOCK_FILE):
+    """Make `pid` (default: this process) the owner of `pid_file`, ending the previous owner."""
+    pid = os.getpid() if pid is None else pid
     directory = Path(directory)
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     # Serialize concurrent starters so exactly one ends up owning the PID file.
-    with open(directory / LOCK_FILE, "w") as lock:
+    with open(directory / lock_file, "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        _terminate_previous(directory, start_time)
-        own = start_time(os.getpid())
-        content = str(os.getpid()) if own is None else f"{os.getpid()}\n{own}"
-        tmp = directory / f"{PID_FILE}.{os.getpid()}.tmp"
+        _terminate_previous(directory, start_time, pid_file)
+        own = start_time(pid)
+        content = str(pid) if own is None else f"{pid}\n{own}"
+        tmp = directory / f"{pid_file}.{os.getpid()}.tmp"
         tmp.write_text(content)
-        os.replace(tmp, directory / PID_FILE)
+        os.replace(tmp, directory / pid_file)
 
 
-def _release(directory):
-    if _read_pid(directory) == os.getpid():
+def _release(directory, pid_file=PID_FILE):
+    if _read_pid(directory, pid_file) == os.getpid():
         try:
-            (Path(directory) / PID_FILE).unlink()
+            (Path(directory) / pid_file).unlink()
         except FileNotFoundError:
             pass
 

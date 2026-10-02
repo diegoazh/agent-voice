@@ -25,6 +25,7 @@ def test_load_without_file_returns_defaults(tmp_path):
         "lang": "es-419",
         "model": "fp32",
         "speed": 1.0,
+        "pending_max_wait_s": 0,
     }
 
 
@@ -109,6 +110,10 @@ def _write(tmp_path, data):
         {"speed": 100},
         {"lang": 5},
         {"lang": ""},
+        {"pending_max_wait_s": -1},
+        {"pending_max_wait_s": "10"},
+        {"pending_max_wait_s": True},
+        {"pending_max_wait_s": float("inf")},
     ],
 )
 def test_invalid_value_falls_back_to_default_with_one_warning(tmp_path, capsys, bad):
@@ -149,3 +154,8 @@ def test_valid_claude_config_dirs_are_kept(tmp_path, capsys):
     env = _write(tmp_path, {"claude_config_dirs": ["/a", "/b"]})
     assert config.load(env)["claude_config_dirs"] == ["/a", "/b"]
     assert capsys.readouterr().err == ""
+
+
+def test_pending_max_wait_accepts_non_negative_numbers(tmp_path):
+    env = _write(tmp_path, {"pending_max_wait_s": 90.5})
+    assert config.load(env)["pending_max_wait_s"] == 90.5

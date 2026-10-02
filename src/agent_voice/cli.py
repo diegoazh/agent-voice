@@ -3,7 +3,7 @@ import os
 import subprocess
 import sys
 
-from agent_voice import __version__, config, models, player, text
+from agent_voice import __version__, config, focus, models, player, text, waiter
 
 
 def _build_parser():
@@ -27,6 +27,7 @@ def _build_parser():
     speak.add_argument("--model", choices=sorted(models.VARIANTS))
     speak.add_argument("--detach", action="store_true")
     speak.add_argument("--always", action="store_true", help=argparse.SUPPRESS)
+    speak.add_argument("--wait-focus", action="store_true", help=argparse.SUPPRESS)
     repeat = sub.add_parser("repeat", help="re-speak the last reply from the agent's transcript")
     repeat.add_argument("--config-dir", action="append", dest="config_dirs", metavar="DIR")
     repeat.add_argument("--voice")
@@ -51,6 +52,7 @@ def _cmd_on(args) -> int:
 def _cmd_off(args) -> int:
     config.save({"enabled": False})
     player.stop()
+    waiter.cancel_all()
     return 0
 
 
@@ -131,8 +133,8 @@ def _cmd_download(args) -> int:
     return 0
 
 
-def _detach(args, raw: str, always: bool = False) -> int:
-    """Hand the text to a new-session child over a pipe (never touches disk)."""
+def _spawn(args, raw: str, always: bool = False, wait_focus: bool = False) -> int:
+    """Hand the text to a new-session child over a pipe (never touches disk); returns its pid."""
     argv = [sys.executable, "-m", "agent_voice", "speak"]
     for flag in ("voice", "speed", "lang", "model"):
         value = getattr(args, flag)
@@ -140,6 +142,8 @@ def _detach(args, raw: str, always: bool = False) -> int:
             argv += [f"--{flag}", str(value)]
     if always:
         argv.append("--always")
+    if wait_focus:
+        argv.append("--wait-focus")
     child = subprocess.Popen(
         argv,
         stdin=subprocess.PIPE,
@@ -150,16 +154,49 @@ def _detach(args, raw: str, always: bool = False) -> int:
     )
     child.stdin.write(raw.encode("utf-8"))
     child.stdin.close()
+    return child.pid
+
+
+def _detach(args, raw: str, always: bool = False) -> int:
+    _spawn(args, raw, always=always)
+    return 0
+
+
+def _detach_waiting(args, raw: str, pane_id: str) -> int:
+    """Spawn a child that holds `raw` in memory until `pane_id` has focus, then speaks.
+
+    The pane's previous waiter (if any) is terminated: a newer reply replaces the pending one.
+    """
+    pid = _spawn(args, raw, wait_focus=True)
+    waiter.register(pane_id, pid)
     return 0
 
 
 def _speak(args) -> int:
     cfg = config.load()
     if not cfg["enabled"] and not args.always:
-        if args.detach:
+        if args.detach or args.wait_focus:
             sys.stdin.read()  # drain, so the writer never blocks or gets EPIPE
         return 0
-    return _speak_text(args, sys.stdin.read(), cfg, always=args.always)
+    raw = sys.stdin.read()  # always before waiting, so the parent's pipe write completes
+    if args.wait_focus and not _await_focus(cfg):
+        return 0
+    return _speak_text(args, raw, cfg, always=args.always)
+
+
+def _await_focus(cfg: dict) -> bool:
+    """True when it is time to speak. Without a focus detector that is immediately."""
+    detector = focus.detect_from_env(os.environ)
+    if detector is None:
+        return True
+    try:
+        return waiter.wait_for_focus(
+            detector,
+            enabled=lambda: config.load()["enabled"],
+            max_wait=cfg["pending_max_wait_s"],
+        )
+    finally:
+        waiter.release(detector.pane_id)
 
 
 def _speak_text(args, raw: str, cfg: dict, always: bool = False) -> int:

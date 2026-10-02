@@ -95,8 +95,22 @@ def last_reply(config_dirs, cwd=None):
     return None
 
 
+def _session_focused(detector):
+    """True/False, or None when unknown. An unknown focus must never silence a reply."""
+    try:
+        return detector.is_focused()
+    except Exception:  # includes PaneGoneError: a vanished pane is simply not gating
+        return None
+
+
 def run_hook(raw: str) -> int:
-    from agent_voice import cli, config
+    """Speak the reply now, or hold it in memory until its session has focus.
+
+    With a focus detector (Ghostty + herdr): focused or unknown -> speak now; not focused
+    -> a detached waiter keeps the text in memory and speaks when the pane gains focus.
+    Either way, a newer reply for the pane replaces any pending one. No detector -> speak.
+    """
+    from agent_voice import cli, config, focus, waiter
 
     payload = json.loads(raw)
     if payload.get("stop_hook_active"):
@@ -107,6 +121,12 @@ def run_hook(raw: str) -> int:
     if not isinstance(message, str):
         return 0
     opts = argparse.Namespace(voice=None, speed=None, lang=None, model=None)
+    detector = focus.detect_from_env(os.environ)
+    if detector is None:
+        return cli._detach(opts, message)
+    if _session_focused(detector) is False:
+        return cli._detach_waiting(opts, message, detector.pane_id)
+    waiter.cancel(detector.pane_id)
     return cli._detach(opts, message)
 
 

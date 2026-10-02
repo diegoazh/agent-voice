@@ -292,6 +292,7 @@ class FakePopen:
     def __init__(self, argv, **kwargs):
         self.argv = argv
         self.kwargs = kwargs
+        self.pid = 4242
         self.stdin = FakeStdin()
         self.waited = False
         FakePopen.instances.append(self)
@@ -557,3 +558,111 @@ def test_repeat_flag_overrides_recorded_dirs_and_empty_list_uses_env_default(hom
     config.save({"claude_config_dirs": []})
     assert main(["repeat"]) == 0
     assert [c[0] for c in last.calls] == [["/x"], [Path("/env")]]
+
+
+class FocusScript:
+    pane_id = "w1:p1"
+
+    def __init__(self, *states, on_call=None):
+        self.states = list(states)
+        self.on_call = on_call
+
+    def is_focused(self):
+        if self.on_call:
+            self.on_call()
+        return self.states.pop(0) if len(self.states) > 1 else self.states[0]
+
+
+@pytest.fixture
+def focus_env(monkeypatch):
+    """Install a scripted detector and make the wait loop instant."""
+    state = {"detector": None, "released": [], "sleeps": []}
+    monkeypatch.setattr("agent_voice.focus.detect_from_env", lambda env, **k: state["detector"])
+    monkeypatch.setattr("agent_voice.waiter.time.sleep", lambda s: state["sleeps"].append(s))
+    monkeypatch.setattr(
+        "agent_voice.waiter.release", lambda pane, **k: state["released"].append(pane)
+    )
+    return state
+
+
+def test_speak_wait_focus_without_a_detector_speaks_immediately(home, spy, focus_env, monkeypatch):
+    config.save({"enabled": True})
+    stdin(monkeypatch, "Hola.")
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    assert main(["speak", "--wait-focus"]) == 0
+    assert [c for c, _ in spy.speaks] == [["Hola."]]
+    assert focus_env["sleeps"] == []
+
+
+def test_speak_wait_focus_reads_stdin_first_then_speaks_once_focused(
+    home, spy, focus_env, monkeypatch
+):
+    config.save({"enabled": True})
+    stdin(monkeypatch, "Hola.")
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    consumed = []
+
+    def probe():
+        consumed.append(sys.stdin.tell() > 0)  # the whole text was read before polling
+
+    focus_env["detector"] = FocusScript(False, False, True, on_call=probe)
+    assert main(["speak", "--wait-focus"]) == 0
+    assert consumed == [True, True, True]
+    assert focus_env["sleeps"] == [0.5, 0.5]
+    assert [c for c, _ in spy.speaks] == [["Hola."]]
+    assert focus_env["released"] == ["w1:p1"]
+
+
+def test_speak_wait_focus_drops_the_reply_when_disabled_while_waiting(
+    home, spy, focus_env, monkeypatch
+):
+    config.save({"enabled": True})
+    stdin(monkeypatch, "Hola.")
+    focus_env["detector"] = FocusScript(False, on_call=lambda: config.save({"enabled": False}))
+    assert main(["speak", "--wait-focus"]) == 0
+    assert spy.speaks == []
+    assert focus_env["released"] == ["w1:p1"]
+
+
+def test_speak_wait_focus_honours_pending_max_wait(home, spy, focus_env, monkeypatch):
+    config.save({"enabled": True, "pending_max_wait_s": 0.05})
+    stdin(monkeypatch, "Hola.")
+    focus_env["detector"] = FocusScript(False)
+    assert main(["speak", "--wait-focus"]) == 0
+    assert spy.speaks == []
+    assert focus_env["sleeps"]  # it did wait (sleeps are instant here), then gave up
+    assert focus_env["released"] == ["w1:p1"]
+
+
+def test_speak_wait_focus_when_disabled_drains_stdin_and_never_polls(home, focus_env, monkeypatch):
+    stdin(monkeypatch, "Hola.")
+    focus_env["detector"] = FocusScript(True, on_call=lambda: pytest.fail("polled"))
+    assert main(["speak", "--wait-focus"]) == 0
+    assert sys.stdin.tell() > 0
+
+
+def test_off_cancels_every_pending_waiter(home, monkeypatch):
+    cancelled = []
+    monkeypatch.setattr("agent_voice.player.stop", lambda *a, **k: None)
+    monkeypatch.setattr("agent_voice.waiter.cancel_all", lambda **k: cancelled.append(1))
+    assert main(["off"]) == 0
+    assert cancelled == [1]
+
+
+def test_detach_waiting_spawns_a_waiter_child_and_registers_its_pid(home, monkeypatch):
+    from agent_voice import cli
+
+    FakePopen.instances = []
+    registered = []
+    monkeypatch.setattr("agent_voice.cli.subprocess.Popen", FakePopen)
+    monkeypatch.setattr(
+        "agent_voice.waiter.register", lambda pane, pid, **k: registered.append((pane, pid))
+    )
+    import argparse
+
+    opts = argparse.Namespace(voice=None, speed=None, lang=None, model=None)
+    assert cli._detach_waiting(opts, "Hola SECRETMARKER.", "w1:p1") == 0
+    (child,) = FakePopen.instances
+    assert child.argv == [sys.executable, "-m", "agent_voice", "speak", "--wait-focus"]
+    assert child.stdin.data == b"Hola SECRETMARKER." and child.stdin.closed
+    assert registered == [("w1:p1", child.pid)]

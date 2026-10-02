@@ -15,6 +15,8 @@ DEFAULTS = {
     "lang": "es-419",
     "model": "fp32",
     "speed": 1.0,
+    # Seconds a reply may stay pending for focus before it is dropped; 0 = no limit.
+    "pending_max_wait_s": 0,
 }
 
 
@@ -30,6 +32,9 @@ _VALID = {
         and not isinstance(v, bool)
         and math.isfinite(v)
         and 0 < v <= MAX_SPEED
+    ),
+    "pending_max_wait_s": lambda v: (
+        isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v >= 0
     ),
     "lang": lambda v: isinstance(v, str) and bool(v),
     "claude_config_dirs": lambda v: isinstance(v, list) and all(isinstance(d, str) and d for d in v),

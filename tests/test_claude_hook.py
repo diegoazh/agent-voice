@@ -130,3 +130,87 @@ def test_hook_when_disabled_still_drains_stdin(home, monkeypatch):
     monkeypatch.setattr(sys, "stdin", Tracked(json.dumps({"last_assistant_message": "Hola."})))
     assert main(["hook", "claude"]) == 0
     assert reads == [1]
+
+
+class FakeDetector:
+    pane_id = "w1:p1"
+
+    def __init__(self, result):
+        self.result = result
+        self.queried = 0
+
+    def is_focused(self):
+        self.queried += 1
+        if isinstance(self.result, Exception):
+            raise self.result
+        return self.result
+
+
+@pytest.fixture
+def gated(home, detached, monkeypatch):
+    """A detector is present; records waiting spawns and waiter cancellations."""
+    state = {"detector": None, "waiting": [], "cancelled": []}
+    monkeypatch.setattr("agent_voice.focus.detect_from_env", lambda env, **k: state["detector"])
+    monkeypatch.setattr(
+        "agent_voice.cli._detach_waiting",
+        lambda args, raw, pane: state["waiting"].append((raw, pane)) or 0,
+    )
+    monkeypatch.setattr(
+        "agent_voice.waiter.cancel", lambda pane, **k: state["cancelled"].append(pane)
+    )
+    state["detached"] = detached
+    return state
+
+
+def run_gated(monkeypatch, gated, result):
+    gated["detector"] = FakeDetector(result)
+    feed(monkeypatch, {"last_assistant_message": "Hola."})
+    assert main(["hook", "claude"]) == 0
+
+
+def test_hook_speaks_now_when_the_session_has_focus_and_cancels_its_pending_reply(
+    monkeypatch, gated
+):
+    run_gated(monkeypatch, gated, True)
+    assert gated["detached"] == ["Hola."]
+    assert gated["waiting"] == []
+    assert gated["cancelled"] == ["w1:p1"]
+
+
+def test_hook_keeps_the_reply_pending_when_the_session_has_no_focus(monkeypatch, gated):
+    run_gated(monkeypatch, gated, False)
+    assert gated["detached"] == []
+    assert gated["waiting"] == [("Hola.", "w1:p1")]
+
+
+@pytest.mark.parametrize("unknown", [None, RuntimeError("boom"), OSError("x")])
+def test_hook_treats_unknown_focus_as_focused(monkeypatch, gated, unknown):
+    run_gated(monkeypatch, gated, unknown)
+    assert gated["detached"] == ["Hola."]
+    assert gated["waiting"] == []
+
+
+def test_hook_with_a_vanished_pane_speaks_now(monkeypatch, gated):
+    from agent_voice import focus
+
+    run_gated(monkeypatch, gated, focus.PaneGoneError("w1:p1"))
+    assert gated["detached"] == ["Hola."]
+
+
+def test_hook_when_disabled_never_queries_the_detector(monkeypatch, gated):
+    config.save({"enabled": False})
+    gated["detector"] = FakeDetector(False)
+    feed(monkeypatch, {"last_assistant_message": "Hola."})
+    assert main(["hook", "claude"]) == 0
+    assert gated["detector"].queried == 0
+    assert gated["waiting"] == [] and gated["detached"] == []
+
+
+def test_hook_survives_a_failing_waiter_spawn(monkeypatch, gated, capsys):
+    def boom(*a, **k):
+        raise OSError("SECRETMARKER")
+
+    monkeypatch.setattr("agent_voice.cli._detach_waiting", boom)
+    run_gated(monkeypatch, gated, False)
+    out = capsys.readouterr()
+    assert out.out == "" and "SECRETMARKER" not in out.err
