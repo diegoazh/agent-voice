@@ -1,5 +1,7 @@
 import argparse
 import os
+import shlex
+import shutil
 import subprocess
 import sys
 
@@ -36,6 +38,8 @@ def _build_parser():
     repeat.add_argument("--lang")
     repeat.add_argument("--model", choices=sorted(models.VARIANTS))
     repeat.add_argument("--detach", action="store_true")
+    keys = sub.add_parser("keys", help="print a hotkey snippet for a hotkey daemon (never writes files)")
+    keys.add_argument("target")
     hook = sub.add_parser("hook", help="agent hook entry point (reads the agent's JSON on stdin)")
     hook.add_argument("agent", choices=["claude"])
     for name, helptext in (("install", "register the hook"), ("uninstall", "remove the hook")):
@@ -277,6 +281,32 @@ def _cmd_repeat(args) -> int:
         return 1
 
 
+KEY_TARGETS = ("skhd",)
+
+
+def _executable() -> str:
+    """Absolute path of the agent-voice executable that is running (skhd has a minimal PATH)."""
+    argv0 = sys.argv[0]
+    if os.path.basename(argv0) == "agent-voice":
+        return os.path.abspath(argv0)
+    return shutil.which("agent-voice") or os.path.abspath(argv0)
+
+
+def _cmd_keys(args) -> int:
+    if args.target not in KEY_TARGETS:
+        print(
+            f"agent-voice: unknown target {args.target!r}; supported: {', '.join(KEY_TARGETS)}",
+            file=sys.stderr,
+        )
+        return 2
+    exe = shlex.quote(_executable())
+    print("# agent-voice")
+    print(f"ctrl + alt - q : {exe} stop")
+    print(f"ctrl + alt - r : {exe} repeat --detach")
+    print(f"ctrl + alt - v : {exe} toggle")
+    return 0
+
+
 def _cmd_hook(args) -> int:
     """Never fails the agent: always exits 0 and prints nothing to stdout."""
     from agent_voice.adapters import claude
@@ -353,6 +383,7 @@ COMMANDS = {
     "off": _cmd_off,
     "stop": _cmd_stop,
     "toggle": _cmd_toggle,
+    "keys": _cmd_keys,
     "status": _cmd_status,
 }
 

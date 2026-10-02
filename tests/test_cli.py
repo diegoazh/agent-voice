@@ -687,3 +687,52 @@ def test_toggle_flips_the_flag_and_prints_the_new_state(home, monkeypatch, capsy
     assert main(["toggle"]) == 0
     assert config.load()["enabled"] is True
     assert capsys.readouterr().out == "enabled\n"
+
+
+# --- keys skhd ------------------------------------------------------------
+
+
+def test_keys_skhd_prints_the_exact_block(monkeypatch, capsys):
+    monkeypatch.setattr("agent_voice.cli._executable", lambda: "/opt/av/bin/agent-voice")
+    assert main(["keys", "skhd"]) == 0
+    assert capsys.readouterr().out == (
+        "# agent-voice\n"
+        "ctrl + alt - q : /opt/av/bin/agent-voice stop\n"
+        "ctrl + alt - r : /opt/av/bin/agent-voice repeat --detach\n"
+        "ctrl + alt - v : /opt/av/bin/agent-voice toggle\n"
+    )
+
+
+def test_keys_skhd_shell_quotes_a_path_with_a_space(monkeypatch, capsys):
+    monkeypatch.setattr("agent_voice.cli._executable", lambda: "/Users/a b/bin/agent-voice")
+    assert main(["keys", "skhd"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[1] == "ctrl + alt - q : '/Users/a b/bin/agent-voice' stop"
+    assert lines[2] == "ctrl + alt - r : '/Users/a b/bin/agent-voice' repeat --detach"
+
+
+def test_keys_skhd_writes_no_files(home, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    before = sorted(p.name for p in tmp_path.rglob("*"))
+    assert main(["keys", "skhd"]) == 0
+    assert sorted(p.name for p in tmp_path.rglob("*")) == before
+
+
+def test_keys_unknown_target_exits_two_listing_supported(capsys):
+    assert main(["keys", "karabiner"]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "agent-voice: unknown target 'karabiner'; supported: skhd\n"
+
+
+def test_executable_is_the_running_agent_voice_absolute_path(monkeypatch):
+    from agent_voice import cli
+
+    monkeypatch.setattr(cli.sys, "argv", ["bin/agent-voice"])
+    monkeypatch.setattr(cli.shutil, "which", lambda name: None)
+    assert os.path.isabs(cli._executable())
+    monkeypatch.setattr(cli.sys, "argv", ["/x/y/agent-voice"])
+    assert cli._executable() == "/x/y/agent-voice"
+    monkeypatch.setattr(cli.sys, "argv", ["/x/y/__main__.py"])
+    monkeypatch.setattr(cli.shutil, "which", lambda name: "/found/agent-voice")
+    assert cli._executable() == "/found/agent-voice"
