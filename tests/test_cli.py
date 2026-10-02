@@ -809,12 +809,27 @@ def test_repeat_session_file_missing_then_uses_the_panes_cwd_project(home, spy, 
     assert got() == "pane cwd project"
 
 
-def test_repeat_pane_without_any_transcript_falls_back_to_current_behavior(home, spy, monkeypatch, tmp_path):
-    _session(tmp_path, "-zzz", "s3", "newest overall", 3000)
-    _herdr_pane(monkeypatch, _claude_pane())
-    got = _detached_text(monkeypatch)
-    assert main(["repeat", "--detach", "--config-dir", str(tmp_path)]) == 0
-    assert got() == "newest overall"
+@pytest.mark.parametrize("pane", [_claude_pane(), {"pane_id": "w1:p1", "focused": True, "cwd": "/w/app"}])
+@pytest.mark.parametrize("detach", [True, False])
+def test_repeat_pane_without_any_transcript_stays_silent_and_exits_one(
+    home, spy, monkeypatch, tmp_path, capsys, pane, detach
+):
+    _session(tmp_path, "-zzz", "s3", "WRONG newest overall", 3000)
+    _herdr_pane(monkeypatch, pane)
+    FakePopen.instances = []
+    monkeypatch.setattr("agent_voice.cli.subprocess.Popen", FakePopen)
+    argv = ["repeat", "--config-dir", str(tmp_path)] + (["--detach"] if detach else [])
+    assert main(argv) == 1
+    assert capsys.readouterr().err == "agent-voice: no previous reply for this pane\n"
+    assert FakePopen.instances == [] and spy.speaks == [] and spy.resolved == []
+
+
+def test_repeat_strictness_also_applies_without_an_explicit_config_dir(home, spy, monkeypatch, capsys):
+    monkeypatch.setattr("agent_voice.adapters.claude.default_config_dir", lambda: home / "nothing")
+    _herdr_pane(monkeypatch, {"pane_id": "w1:p1", "focused": True, "cwd": "/w/app"})
+    assert main(["repeat"]) == 1
+    assert capsys.readouterr().err == "agent-voice: no previous reply for this pane\n"
+    assert spy.speaks == []
 
 
 @pytest.mark.parametrize("failure", ["missing", "raises", "no-pane"])

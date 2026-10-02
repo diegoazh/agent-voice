@@ -305,7 +305,10 @@ def resolve_reply(dirs):
     """(strategy, reply) for `repeat`; reply is None when nothing was found.
 
     Strategies, in order: "session-id" (the herdr pane's Claude session transcript),
-    "cwd" (that pane's project folder), "fallback" (this process's cwd, then newest overall).
+    "cwd" (that pane's project folder). A resolved herdr pane with neither yields
+    ("no-pane-reply", None): never another conversation. Only when no pane is resolved
+    (herdr unavailable or erroring) does "fallback" apply: this process's cwd, then the
+    newest conversation overall.
     """
     from agent_voice.adapters import claude
 
@@ -319,6 +322,7 @@ def resolve_reply(dirs):
         reply = claude.project_reply(dirs, pane_cwd) if isinstance(pane_cwd, str) else None
         if reply:
             return "cwd", reply
+        return "no-pane-reply", None
     return "fallback", claude.last_reply(dirs, cwd=os.getcwd())
 
 
@@ -336,9 +340,10 @@ def _cmd_repeat(args) -> int:
             or config.load().get("claude_config_dirs")
             or [claude.default_config_dir()]
         )
-        _, reply = resolve_reply(dirs)
+        strategy, reply = resolve_reply(dirs)
         if reply is None:
-            print("agent-voice: no previous reply found", file=sys.stderr)
+            what = "for this pane" if strategy == "no-pane-reply" else "found"
+            print(f"agent-voice: no previous reply {what}", file=sys.stderr)
             return 1
         return _speak_text(args, reply, config.load(), always=True)
     except Exception as exc:
