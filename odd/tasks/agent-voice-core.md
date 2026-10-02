@@ -240,6 +240,9 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
 
 ## Backlog (owner, 2026-10-02, later)
 
+- **Feature 2 (next, high priority):** Pi adapter (hook + focus gating +
+  repeat reader), right after this feature closes.
+
 - Read selected or copied text aloud (selection/clipboard), as an additional
   source besides the agent transcript.
 
