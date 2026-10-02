@@ -73,6 +73,7 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
 | T8 | Claude Code adapter + `agent-voice install claude` (~/.claude, ~/.claude-work); verify Stop-hook text excludes intermediate text | delegated | done `0508485`, `a0b5465` |
 | T9 | `agent-voice repeat` with Claude Code transcript reader | delegated | done `4f56390` |
 | T10 | Adapters + repeat readers for Codex, Pi, OpenCode, Gemini | later | pending |
+| T11 | Hardening of review follow-ups (owner approved 2026-10-02) | delegated | in progress |
 
 ### Acceptance criteria (summary)
 
