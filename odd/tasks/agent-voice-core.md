@@ -287,6 +287,12 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
   session guard fails if real settings change; mutation-proved). RDD:
   medium, under budget.
 
+- Real use (2026-10-02): owner ran `agent-voice on` and heard replies in
+  this session; skhd block appended to `~/.config/skhd/skhdrc` with owner
+  approval (`skhd --reload` failed: "could not locate existing instance",
+  likely the pid file removed by the earlier stray instance; hotload picked
+  the config up). Owner confirmed hotkeys work: "funciona excelente".
+
 ## Backlog (owner, 2026-10-02, later)
 
 - **Feature 2 (next, high priority):** Pi adapter (hook + focus gating +
