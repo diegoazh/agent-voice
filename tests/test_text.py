@@ -398,3 +398,77 @@ def test_chunks_reject_non_positive_limit():
 def test_chunks_unterminated_inverted_mark_still_bounded():
     out = chunks("¿" + "palabra " * 100, max_chars=60)
     assert all(len(c) <= 60 for c in out)
+
+
+# ReDoS / unbounded input (security audit G2, G3)
+import time
+
+from agent_voice import text as _text
+
+_SLOW = 1.0
+
+
+def _elapsed(fn, *args):
+    start = time.perf_counter()
+    fn(*args)
+    return time.perf_counter() - start
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "# a" + " " * 6000 + "x",
+        "#" + " " * 6000,
+        "*a " * 7000,
+        "_a " * 7000,
+        "**a " * 5000,
+        "~~a " * 5000,
+        "![" * 10000,
+        "[" * 20000,
+        "<a" * 10000,
+    ],
+    ids=["heading-spaces", "heading-only-spaces", "star", "under", "bold", "tilde", "image", "link", "html"],
+)
+def test_adversarial_line_is_processed_in_linear_time(line):
+    assert _elapsed(_text._blocks, line) < _SLOW
+
+
+def test_sentence_split_of_closer_runs_is_linear():
+    assert _elapsed(_text._sentences, "." * 20000 + "x") < _SLOW
+    assert _elapsed(_text._sentences, ".\"" * 10000 + "x") < _SLOW
+
+
+def test_hard_split_of_a_huge_unbroken_sentence_is_linear():
+    assert _elapsed(_text._hard_split, "a" * 200000, 300) < _SLOW
+
+
+def test_heading_trailing_hashes_and_spaces_are_still_stripped():
+    assert clean("## Título ##  ") == "Título."
+    assert clean("#   Título   ") == "Título."
+
+
+def test_emphasis_still_wraps_ordinary_spans():
+    assert clean("Esto es *muy* **claro** y ~~no~~ _así_.") == "Esto es muy claro y no así."
+
+
+def test_overlong_line_is_truncated_before_cleaning():
+    out = clean("a" * 5000 + " cola.\nSegunda línea.")
+    assert "cola" not in out
+    assert out.startswith("a" * _text.MAX_LINE_CHARS)
+    assert "Segunda línea." in out
+
+
+def test_overlong_reply_is_cut_with_a_short_spoken_notice():
+    reply = "\n".join(["Esta es una frase de prueba."] * 5000)
+    out = clean(reply)
+    assert out.endswith(_text.TRUNCATED_NOTICE)
+    assert len(out) < _text.MAX_REPLY_CHARS + 200
+
+
+def test_reply_within_the_cap_has_no_notice():
+    assert _text.TRUNCATED_NOTICE not in clean("Hola mundo, esto es corto.")
+
+
+@pytest.mark.parametrize("raw", ["*a " * 40000, "# a" + " " * 100000 + "x", "![" * 60000, "." * 100000 + "x"])
+def test_whole_pipeline_on_hostile_100k_input_is_fast(raw):
+    assert _elapsed(chunks, raw) < _SLOW

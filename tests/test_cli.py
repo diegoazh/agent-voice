@@ -980,3 +980,21 @@ def test_spawn_runs_child_from_a_safe_cwd_with_safe_path_env(home, monkeypatch):
     assert child.kwargs["cwd"] == "/"
     assert child.kwargs["env"]["PYTHONSAFEPATH"] == "1"
     assert ("-P" in child.argv) == (sys.version_info >= (3, 11))
+
+
+def test_speaker_pid_is_registered_before_text_processing_and_released_after(home, spy, monkeypatch):
+    """`stop`/`off` must be able to cut a process that is still cleaning a huge reply."""
+    from agent_voice import player
+
+    seen = []
+
+    def chunks(raw):
+        seen.append(player._read_pid(player.runtime_dir()))
+        return []
+
+    config.save({"enabled": True})
+    stdin(monkeypatch, "Hola.")
+    monkeypatch.setattr("agent_voice.text.chunks", chunks)
+    assert main(["speak"]) == 0
+    assert seen == [os.getpid()]
+    assert player._read_pid(player.runtime_dir()) is None

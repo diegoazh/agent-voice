@@ -263,6 +263,14 @@ def _speak_text(args, raw: str, cfg: dict, always: bool = False) -> int:
     """
     if args.detach:
         return _detach(args, raw, always=always)
+    player.claim()  # before any text processing: `stop`/`off` can always cut this process
+    try:
+        return _synthesize_and_play(args, raw, cfg)
+    finally:
+        player.release()
+
+
+def _synthesize_and_play(args, raw: str, cfg: dict) -> int:
     chunks = text.chunks(raw)
     if not chunks:
         return 0

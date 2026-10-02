@@ -121,6 +121,23 @@ def _release(directory, pid_file=PID_FILE):
             pass
 
 
+def claim(run_dir=None, start_time=None):
+    """Register this process as the speaker now (ending the previous one).
+
+    Called before the reply text is processed, so `stop`/`off` can always cut this
+    process; `speak` claims again (idempotent) and releases on exit.
+    """
+    _claim(
+        runtime_dir() if run_dir is None else Path(run_dir),
+        process_start_time if start_time is None else start_time,
+    )
+
+
+def release(run_dir=None):
+    """Drop this process's own PID record, if it still owns it."""
+    _release(runtime_dir() if run_dir is None else Path(run_dir))
+
+
 def speak(chunks, synth, *, play=None, workdir=None, run_dir=None, handle_signals=True,
           start_time=None):
     """Synthesize and play `chunks` in order, synthesizing ahead of playback.

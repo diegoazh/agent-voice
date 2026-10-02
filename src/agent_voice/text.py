@@ -11,6 +11,12 @@ import unicodedata
 DEFAULT_MAX_CHARS = 300
 # Fragments shorter than this are merged with a neighbour ("Sí.", "Sr.").
 MIN_CHUNK_CHARS = 15
+# Hard input caps, applied before any cleaning (keeps every later step cheap).
+MAX_LINE_CHARS = 2000
+MAX_REPLY_CHARS = 50000
+TRUNCATED_NOTICE = "El resto de la respuesta es demasiado largo."
+# Bound on how far an inline Markdown construct may reach: keeps the regexes linear.
+_SPAN = 300
 CODE_SENTENCE = "Ver el código en el texto."
 CODE_INLINE = "ver el código en el texto"
 TABLE_SENTENCE = "Ver la tabla en el texto."
@@ -25,18 +31,18 @@ MAX_IDENTIFIER_CHARS = 40
 _IDENTIFIER = re.compile(r"[\w.\-]+(?:\(\))?")
 _SLASH_PAIR = re.compile(r"[^\W\d_]+/[^\W\d_]+")
 _SENTENCE_BREAK = re.compile(rf"[{re.escape(_SENTENCE_END)}][{re.escape(_CLOSERS)}]*\s")
-_IMAGE = re.compile(r"!\[([^\]\n]*)\]\([^)\n]*\)")
-_HTML_TAG = re.compile(r"</?[A-Za-z][^>\n]*>")
+_IMAGE = re.compile(rf"!\[([^\]\n]{{0,{_SPAN}}})\]\([^)\n]{{0,{_SPAN}}}\)")
+_HTML_TAG = re.compile(rf"</?[A-Za-z][^>\n]{{0,{_SPAN}}}>")
 _EMPHASIS = (
-    re.compile(r"(?<!\w)__(?=\S)(.+?)(?<=\S)__(?!\w)"),
-    re.compile(r"\*\*(?=\S)(.+?)(?<=\S)\*\*"),
-    re.compile(r"(?<![\w*])\*(?=[^\s*])(.+?)(?<=[^\s*])\*(?![\w*])"),
-    re.compile(r"(?<!\w)_(?=[^\s_])(.+?)(?<=[^\s_])_(?!\w)"),
-    re.compile(r"~~(?=\S)(.+?)(?<=\S)~~"),
+    re.compile(rf"(?<!\w)__(?=\S)(.{{1,{_SPAN}}}?)(?<=\S)__(?!\w)"),
+    re.compile(rf"\*\*(?=\S)(.{{1,{_SPAN}}}?)(?<=\S)\*\*"),
+    re.compile(rf"(?<![\w*])\*(?=[^\s*])(.{{1,{_SPAN}}}?)(?<=[^\s*])\*(?![\w*])"),
+    re.compile(rf"(?<!\w)_(?=[^\s_])(.{{1,{_SPAN}}}?)(?<=[^\s_])_(?!\w)"),
+    re.compile(rf"~~(?=\S)(.{{1,{_SPAN}}}?)(?<=\S)~~"),
 )
 _QUOTE_PREFIX = re.compile(r"^\s*(?:>\s?)+")
 _HRULE = re.compile(r"^\s*([-*_])(?:\s*\1){2,}\s*$")
-_HEADING = re.compile(r"^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$")
+_HEADING = re.compile(r"^\s{0,3}#{1,6}\s+(.*)$")
 _LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(.*)$")
 _TABLE_SEPARATOR = re.compile(r"^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$")
 MAX_TABLE_COLUMNS = 4
@@ -45,7 +51,7 @@ MAX_TABLE_ROWS = 8
 _HASH = re.compile(r"\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,64}\b", re.IGNORECASE)
 _SPACE_BEFORE_PUNCT = re.compile(r"\s+([.,;:!?…])")
 _DECORATIVE = frozenset("•·●○■□▪▫→←↑↓↔⇒⇐")
-_MD_LINK = re.compile(r"\[([^\]\n]*)\]\([^)\n]*\)")
+_MD_LINK = re.compile(rf"\[([^\]\n]{{0,{_SPAN}}})\]\([^)\n]{{0,{_SPAN}}}\)")
 _AUTOLINK = re.compile(r"<(?:https?://|www\.)[^>\s]*>")
 _URL = re.compile(r"(?:https?://|www\.)[^\s<>\]\)]*[^\s<>\]\).,;:!?]")
 _SEG = r"[\w.\-@]*\w"
@@ -247,7 +253,8 @@ def _blocks(text: str) -> list[str]:
         heading = _HEADING.match(line)
         item = _LIST_ITEM.match(line)
         if heading:
-            line = _as_sentence(_inline(heading.group(1)))
+            # Trailing "#" and spaces are stripped here, not in the regex (linear time).
+            line = _as_sentence(_inline(heading.group(1).rstrip().rstrip("#").rstrip()))
         elif item:
             line = _as_sentence(_inline(item.group(1)))
         else:
@@ -257,13 +264,29 @@ def _blocks(text: str) -> list[str]:
     return out
 
 
+def _cap(text: str) -> tuple[str, bool]:
+    """Apply the hard input caps: each line to MAX_LINE_CHARS, the reply to MAX_REPLY_CHARS.
+
+    Returns (capped text, whether the reply was cut short).
+    """
+    cut = len(text) > MAX_REPLY_CHARS
+    lines = text[:MAX_REPLY_CHARS].split("\n")
+    return "\n".join(line[:MAX_LINE_CHARS] for line in lines), cut
+
+
 def clean(text: str) -> str:
-    """Return speakable prose for a Markdown reply, or "" if nothing remains."""
-    text = _replace_fences(text.replace("\r\n", "\n"))
+    """Return speakable prose for a Markdown reply, or "" if nothing remains.
+
+    Input is capped first (MAX_LINE_CHARS per line, MAX_REPLY_CHARS overall); a cut
+    reply ends with TRUNCATED_NOTICE.
+    """
+    text, cut = _cap(text.replace("\r\n", "\n"))
+    text = _replace_fences(text)
     text = " ".join(_blocks(_strip_symbols(text)))
     text = re.sub(r"\s+", " ", text).strip()
     text = _SPACE_BEFORE_PUNCT.sub(r"\1", text)
-    return _collapse_repeats(text)
+    text = _collapse_repeats(text)
+    return f"{text} {TRUNCATED_NOTICE}".strip() if cut else text
 
 
 def _sentences(text: str) -> list[str]:
@@ -287,6 +310,13 @@ def _sentences(text: str) -> list[str]:
                 out.append(text[start:j].strip())
                 start = i = j
                 continue
+            # No boundary after this run, so none inside it either (same end `j`); only
+            # the depth bookkeeping of its "?"/"!" characters is left to replay.
+            for ch in text[i + 1 : j]:
+                if ch in "?!" and depth:
+                    depth -= 1
+            i = j
+            continue
         i += 1
     tail = text[start:].strip()
     if tail:
@@ -297,9 +327,10 @@ def _sentences(text: str) -> list[str]:
 def _hard_split(sentence: str, max_chars: int) -> list[str]:
     """Split an over-long sentence at the last comma, else space, within the limit."""
     parts: list[str] = []
-    rest = sentence
-    while len(rest) > max_chars:
-        window = rest[: max_chars + 1]
+    pos = 0
+    n = len(sentence)
+    while n - pos > max_chars:
+        window = sentence[pos : pos + max_chars + 1]
         cut = max(window.rfind(","), window.rfind(";"))
         if cut > 0:
             cut += 1
@@ -307,8 +338,11 @@ def _hard_split(sentence: str, max_chars: int) -> list[str]:
             cut = window.rfind(" ")
             if cut <= 0:
                 cut = max_chars
-        parts.append(rest[:cut].strip())
-        rest = rest[cut:].strip()
+        parts.append(window[:cut].strip())
+        pos += cut
+        while pos < n and sentence[pos].isspace():
+            pos += 1
+    rest = sentence[pos:].strip()
     if rest:
         parts.append(rest)
     return parts
