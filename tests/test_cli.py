@@ -867,3 +867,70 @@ def test_repeat_detach_returns_without_loading_the_model(home, spy, monkeypatch,
     assert main(["repeat", "--detach", "--config-dir", str(tmp_path)]) == 0
     assert got() == "Hola."
     assert spy.resolved == [] and spy.speaks == []
+
+
+# --- pending-wait --------------------------------------------------------------
+
+
+def test_pending_wait_without_argument_prints_off_by_default(home, capsys):
+    assert main(["pending-wait"]) == 0
+    assert capsys.readouterr().out == "off\n"
+
+
+@pytest.mark.parametrize(
+    "arg, seconds, shown",
+    [("45s", 45, "45s"), ("30m", 1800, "30m"), ("2h", 7200, "2h"), ("90", 90, "90s"),
+     ("90m", 5400, "90m"), ("120s", 120, "2m"), ("3600", 3600, "1h")],
+)
+def test_pending_wait_sets_and_shows_the_limit(home, capsys, arg, seconds, shown):
+    assert main(["pending-wait", arg]) == 0
+    assert config.load()["pending_max_wait_s"] == seconds
+    capsys.readouterr()
+    assert main(["pending-wait"]) == 0
+    assert capsys.readouterr().out == f"{shown}\n"
+
+
+def test_pending_wait_off_clears_the_limit(home, capsys):
+    config.save({"pending_max_wait_s": 1800})
+    assert main(["pending-wait", "off"]) == 0
+    assert config.load()["pending_max_wait_s"] == 0
+    capsys.readouterr()
+    main(["pending-wait"])
+    assert capsys.readouterr().out == "off\n"
+
+
+@pytest.mark.parametrize("arg", ["abc", "1.5h", "10x", "", "m", "0m ", "1d"])
+def test_pending_wait_rejects_invalid_values_with_a_usage_hint(home, capsys, arg):
+    config.save({"pending_max_wait_s": 60})
+    assert main(["pending-wait", arg]) == 2
+    err = capsys.readouterr().err
+    assert "agent-voice: invalid duration" in err and "30m" in err and "off" in err
+    assert config.load()["pending_max_wait_s"] == 60
+
+
+def test_pending_wait_zero_means_off(home, capsys):
+    assert main(["pending-wait", "0"]) == 0
+    main(["pending-wait"])
+    assert capsys.readouterr().out == "off\n"
+
+
+def test_status_shows_the_pending_wait(home, capsys):
+    main(["status"])
+    assert "pending wait: off\n" in capsys.readouterr().out
+    config.save({"pending_max_wait_s": 1800})
+    main(["status"])
+    assert "pending wait: 30m\n" in capsys.readouterr().out
+
+
+def test_pending_wait_negative_value_is_rejected_by_the_parser(home):
+    config.save({"pending_max_wait_s": 60})
+    with pytest.raises(SystemExit) as exc:
+        main(["pending-wait", "-5m"])
+    assert exc.value.code == 2
+    assert config.load()["pending_max_wait_s"] == 60
+
+
+def test_pending_wait_shows_a_fractional_stored_limit_in_seconds(home, capsys):
+    config.save({"pending_max_wait_s": 0.5})
+    main(["pending-wait"])
+    assert capsys.readouterr().out == "0.5s\n"

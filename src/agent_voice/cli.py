@@ -1,5 +1,6 @@
 import argparse
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -21,6 +22,8 @@ def _build_parser():
     voice.add_argument("name", nargs="?")
     model = sub.add_parser("model", help="show or set the default model variant")
     model.add_argument("name", nargs="?")
+    pending = sub.add_parser("pending-wait", help="show or set how long a reply may wait for focus")
+    pending.add_argument("duration", nargs="?", metavar="DURATION|off")
     download = sub.add_parser("download", help="download model files (the only network path)")
     download.add_argument("--model", choices=sorted(models.VARIANTS))
     speak = sub.add_parser("speak", help="read a reply from stdin and speak it")
@@ -88,6 +91,7 @@ def _cmd_status(args) -> int:
     print(f"model: {cfg['model']}")
     print(f"speed: {cfg['speed']}")
     print(f"lang: {cfg['lang']}")
+    print(f"pending wait: {_format_wait(cfg['pending_max_wait_s'])}")
     print(f"model files: {files}")
     return 0
 
@@ -129,6 +133,38 @@ def _cmd_model(args) -> int:
         return 0
     print(f"current: {config.load()['model']}")
     print(f"available: {', '.join(models.VARIANTS)}")
+    return 0
+
+
+_UNITS = {"s": 1, "m": 60, "h": 3600}
+_DURATION = re.compile(r"(\d+)([smh]?)")
+
+
+def _format_wait(seconds) -> str:
+    if not seconds:
+        return "off"
+    if seconds != int(seconds):
+        return f"{seconds}s"
+    seconds = int(seconds)
+    for unit in ("h", "m"):
+        if seconds % _UNITS[unit] == 0:
+            return f"{seconds // _UNITS[unit]}{unit}"
+    return f"{seconds}s"
+
+
+def _cmd_pending_wait(args) -> int:
+    if args.duration is None:
+        print(_format_wait(config.load()["pending_max_wait_s"]))
+        return 0
+    match = None if args.duration == "off" else _DURATION.fullmatch(args.duration)
+    if args.duration != "off" and match is None:
+        print(
+            f"agent-voice: invalid duration {args.duration!r}; use e.g. 45s, 30m, 2h or off",
+            file=sys.stderr,
+        )
+        return 2
+    seconds = 0 if match is None else int(match.group(1)) * _UNITS[match.group(2) or "s"]
+    config.save({"pending_max_wait_s": seconds})
     return 0
 
 
@@ -413,6 +449,7 @@ COMMANDS = {
     "stop": _cmd_stop,
     "toggle": _cmd_toggle,
     "keys": _cmd_keys,
+    "pending-wait": _cmd_pending_wait,
     "status": _cmd_status,
 }
 
