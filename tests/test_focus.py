@@ -178,3 +178,16 @@ def test_default_runner_uses_a_timeout_and_captures_text(monkeypatch):
     monkeypatch.setattr(focus.subprocess, "run", fake_run)
     focus._run(["echo"])
     assert seen["timeout"] > 0 and seen["capture_output"] and seen["text"]
+
+
+def test_check_pane_asks_only_herdr_even_when_ghostty_is_in_the_background():
+    runner = Fake(default=pane(False))
+    focus.HerdrGhosttyDetector("w1:p1", run=runner).check_pane()
+    assert runner.calls == [["herdr", "pane", "get", "w1:p1"]]  # no lsappinfo
+
+
+def test_check_pane_raises_when_the_pane_is_gone_and_is_quiet_when_unknown():
+    err = json.dumps({"error": {"code": "pane_not_found"}})
+    with pytest.raises(focus.PaneGoneError):
+        focus.HerdrGhosttyDetector("w1:p1", run=Fake(herdr=(1, err))).check_pane()
+    focus.HerdrGhosttyDetector("w1:p1", run=Fake(herdr=(1, ""))).check_pane()

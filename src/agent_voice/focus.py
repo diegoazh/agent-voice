@@ -28,6 +28,9 @@ class FocusDetector(Protocol):
 
     pane_id: str
 
+    def check_pane(self) -> None:
+        """Raise PaneGoneError if the session's pane no longer exists (optional; cheap)."""
+
     def is_focused(self) -> "bool | None": ...
 
 
@@ -74,6 +77,10 @@ class HerdrGhosttyDetector:
         except (KeyError, TypeError):
             return None
         return focused if isinstance(focused, bool) else None
+
+    def check_pane(self):
+        """Ask herdr only whether the pane exists, whatever the OS-level focus."""
+        self.herdr_pane_focused()
 
     def is_focused(self):
         front = self.ghostty_frontmost()

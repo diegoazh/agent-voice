@@ -136,7 +136,8 @@ class Script:
 
 
 def wait(detector, clock, **kw):
-    kw.setdefault("enabled", lambda: True)
+    ticks = iter(range(5000))  # a runaway wait ends as "disabled" instead of hanging the suite
+    kw.setdefault("enabled", lambda: next(ticks, None) is not None)
     return waiter.wait_for_focus(detector, sleep=clock.sleep, clock=clock.monotonic, **kw)
 
 
@@ -184,3 +185,57 @@ def test_max_wait_caps_the_wait_and_zero_means_no_limit():
 def test_unexpected_detector_errors_count_as_unknown():
     clock, det = Clock(), Script(RuntimeError("boom"), True)
     assert wait(det, clock) is True
+
+
+class BackgroundGhostty(Script):
+    """Ghostty never frontmost: is_focused() answers False without asking herdr; only
+    check_pane() reaches herdr, and raises PaneGoneError once the pane closes at `closes_at`."""
+
+    def __init__(self, clock, closes_at):
+        super().__init__(False)
+        self.clock, self.closes_at = clock, closes_at
+        self.pane_checks = []
+
+    def check_pane(self):
+        self.pane_checks.append(self.clock.now)
+        if self.clock.now >= self.closes_at:
+            raise focus.PaneGoneError(self.pane_id)
+
+
+def test_notices_a_closed_pane_within_one_check_even_with_ghostty_in_background():
+    clock = Clock()
+    det = BackgroundGhostty(clock, closes_at=25)
+    assert wait(det, clock) is False  # returned False, i.e. never spoke
+    assert 25 <= clock.now <= 25 + waiter.PANE_CHECK_INTERVAL
+    assert det.pane_checks[0] == waiter.PANE_CHECK_INTERVAL
+    assert all(b - a == waiter.PANE_CHECK_INTERVAL for a, b in zip(det.pane_checks, det.pane_checks[1:]))
+
+
+def test_pane_check_interval_is_injectable_and_checks_stay_off_the_focus_ticks():
+    clock = Clock()
+    det = BackgroundGhostty(clock, closes_at=3)
+    assert wait(det, clock, pane_check_interval=2.0) is False
+    assert det.pane_checks == [2.0, 4.0]
+    assert det.calls == 8  # focus ticks keep their own 0.5 s cadence
+
+
+def test_an_open_pane_never_ends_the_wait_and_check_errors_count_as_unknown():
+    clock = Clock()
+    det = BackgroundGhostty(clock, closes_at=10**9)
+    det.check_pane = lambda: (_ for _ in ()).throw(RuntimeError("herdr hiccup"))
+    flags = iter([True] * 60 + [False])
+    assert wait(det, clock, enabled=lambda: next(flags)) is False
+    assert clock.now == pytest.approx(30.0)
+
+
+def test_unknown_focus_keeps_waiting_until_disabled_and_never_speaks():
+    clock, det = Clock(), Script(None)
+    flags = iter([True] * 300 + [False])
+    assert wait(det, clock, enabled=lambda: next(flags)) is False
+    assert det.calls == 300 and clock.now == pytest.approx(150.0)
+
+
+def test_detectors_without_a_pane_check_still_work():
+    clock, det = Clock(), Script(False, False, True)
+    assert not hasattr(det, "check_pane")
+    assert wait(det, clock, pane_check_interval=0.5) is True

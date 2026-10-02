@@ -11,6 +11,8 @@ from pathlib import Path
 from agent_voice import focus, player
 
 POLL_INTERVAL = 0.5
+# How often a waiting process asks herdr whether its pane still exists.
+PANE_CHECK_INTERVAL = 10.0
 
 
 def _names(pane_id):
@@ -54,19 +56,32 @@ def release(pane_id, *, run_dir=None):
 
 
 def wait_for_focus(detector, *, enabled, sleep=None, clock=None, interval=POLL_INTERVAL,
-                   max_wait=0):
+                   max_wait=0, pane_check_interval=PANE_CHECK_INTERVAL):
     """Block until the session has focus. True = speak now; False = drop the reply.
 
     Polls: herdr has a `pane.focused` event, but nothing announces Ghostty gaining the
     OS-level focus, so an event wait would still need a poll. Each tick costs one
     `lsappinfo` call while Ghostty is in the background (two when it is in front).
-    Unknown focus keeps waiting. Gives up when speaking is disabled, the pane is gone,
+    Unknown focus keeps waiting. Every `pane_check_interval` seconds it also asks the detector whether the pane still
+    exists (`check_pane`), even while Ghostty is in the background, so a closed pane
+    ends the wait without speaking. Gives up when speaking is disabled, the pane is gone,
     or `max_wait` seconds pass (0 = no limit).
     """
     sleep = time.sleep if sleep is None else sleep
     clock = time.monotonic if clock is None else clock
-    deadline = clock() + max_wait if max_wait > 0 else None
+    start = clock()
+    deadline = start + max_wait if max_wait > 0 else None
+    check_pane = getattr(detector, "check_pane", None)
+    next_pane_check = start + pane_check_interval
     while enabled():
+        if check_pane is not None and clock() >= next_pane_check:
+            next_pane_check += pane_check_interval
+            try:
+                check_pane()
+            except focus.PaneGoneError:
+                return False
+            except Exception:
+                pass
         try:
             state = detector.is_focused()
         except focus.PaneGoneError:
