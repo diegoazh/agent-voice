@@ -1,3 +1,4 @@
+import argparse
 import io
 import os
 import sys
@@ -5,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_voice import config
+from agent_voice import cli, config
 from agent_voice.cli import main
 
 
@@ -17,6 +18,9 @@ def test_version_prints_and_returns_zero(capsys):
 def test_no_arguments_prints_nothing_and_returns_zero(capsys):
     assert main([]) == 0
     assert capsys.readouterr().out == ""
+
+
+PY = [sys.executable, *(["-P"] if sys.version_info >= (3, 11) else [])]
 
 
 @pytest.fixture
@@ -313,7 +317,7 @@ def test_detach_spawns_session_child_with_text_on_stdin_and_returns(home, spy, m
     assert main(argv) == 0
     (child,) = FakePopen.instances
     assert child.argv == [
-        sys.executable, "-m", "agent_voice", "speak",
+        *PY, "-m", "agent_voice", "speak",
         "--voice", "ef_dora", "--speed", "0.9", "--lang", "es", "--model", "int8",
     ]
     assert child.kwargs["start_new_session"] is True
@@ -359,7 +363,7 @@ def test_detach_without_options_passes_no_flags_and_swallows_spawn_errors(home, 
     stdin(monkeypatch, "Hola.")
     monkeypatch.setattr("agent_voice.cli.subprocess.Popen", FakePopen)
     assert main(["speak", "--detach"]) == 0
-    assert FakePopen.instances[0].argv == [sys.executable, "-m", "agent_voice", "speak"]
+    assert FakePopen.instances[0].argv == [*PY, "-m", "agent_voice", "speak"]
 
     def boom(*a, **k):
         raise OSError("SECRETMARKER")
@@ -480,7 +484,7 @@ def test_repeat_detach_hands_text_to_child_that_ignores_disabled_flag(home, spy,
     assert main(["repeat", "--config-dir", "/a", "--detach", "--voice", "ef_dora"]) == 0
     (child,) = FakePopen.instances
     assert child.argv == [
-        sys.executable, "-m", "agent_voice", "speak", "--voice", "ef_dora", "--always",
+        *PY, "-m", "agent_voice", "speak", "--voice", "ef_dora", "--always",
     ]
     assert child.stdin.data == b"Hola SECRETMARKER." and child.stdin.closed
     assert spy.speaks == []
@@ -539,7 +543,7 @@ def test_speak_always_detach_forwards_always_to_the_child(home, monkeypatch):
     assert config.load()["enabled"] is False
     assert main(["speak", "--always", "--detach"]) == 0
     (child,) = FakePopen.instances
-    assert child.argv == [sys.executable, "-m", "agent_voice", "speak", "--always"]
+    assert child.argv == [*PY, "-m", "agent_voice", "speak", "--always"]
 
 
 def test_repeat_without_flag_uses_recorded_claude_config_dirs(home, spy, last, monkeypatch):
@@ -663,7 +667,7 @@ def test_detach_waiting_spawns_a_waiter_child_and_registers_its_pid(home, monkey
     opts = argparse.Namespace(voice=None, speed=None, lang=None, model=None)
     assert cli._detach_waiting(opts, "Hola SECRETMARKER.", "w1:p1") == 0
     (child,) = FakePopen.instances
-    assert child.argv == [sys.executable, "-m", "agent_voice", "speak", "--wait-focus"]
+    assert child.argv == [*PY, "-m", "agent_voice", "speak", "--wait-focus"]
     assert child.stdin.data == b"Hola SECRETMARKER." and child.stdin.closed
     assert registered == [("w1:p1", child.pid)]
 
@@ -949,3 +953,30 @@ def test_pending_wait_shows_a_fractional_stored_limit_in_seconds(home, capsys):
     config.save({"pending_max_wait_s": 0.5})
     main(["pending-wait"])
     assert capsys.readouterr().out == "0.5s\n"
+
+
+def test_spawned_child_never_imports_modules_from_the_hook_cwd(home, tmp_path, monkeypatch):
+    """A project dir with json.py or agent_voice/ must not get code execution (cwd hijack)."""
+    evil = tmp_path / "evil"
+    (evil / "agent_voice").mkdir(parents=True)
+    marker_pkg, marker_json = tmp_path / "pwned-pkg", tmp_path / "pwned-json"
+    (evil / "agent_voice" / "__init__.py").write_text("")
+    (evil / "agent_voice" / "__main__.py").write_text(f"open({str(marker_pkg)!r}, 'w')\n")
+    (evil / "json.py").write_text(f"open({str(marker_json)!r}, 'w')\n")
+    monkeypatch.chdir(evil)
+    stdin(monkeypatch, "Hola.")
+    config.save({"enabled": True})
+    pid = cli._spawn(argparse.Namespace(voice=None, speed=None, lang=None, model=None), "Hola.")
+    os.waitpid(pid, 0)
+    assert not marker_pkg.exists()
+    assert not marker_json.exists()
+
+
+def test_spawn_runs_child_from_a_safe_cwd_with_safe_path_env(home, monkeypatch):
+    FakePopen.instances = []
+    monkeypatch.setattr("agent_voice.cli.subprocess.Popen", FakePopen)
+    cli._spawn(argparse.Namespace(voice=None, speed=None, lang=None, model=None), "x")
+    (child,) = FakePopen.instances
+    assert child.kwargs["cwd"] == "/"
+    assert child.kwargs["env"]["PYTHONSAFEPATH"] == "1"
+    assert ("-P" in child.argv) == (sys.version_info >= (3, 11))

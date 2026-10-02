@@ -184,9 +184,14 @@ def _cmd_download(args) -> int:
     return 0
 
 
+SAFE_CWD = "/"
+
+
 def _spawn(args, raw: str, always: bool = False, wait_focus: bool = False) -> int:
     """Hand the text to a new-session child over a pipe (never touches disk); returns its pid."""
-    argv = [sys.executable, "-m", "agent_voice", "speak"]
+    # -P (3.11+) and cwd="/" keep the hook's cwd (a project dir) off the child's sys.path:
+    # a `json.py` or `agent_voice/` there must never be imported (code execution).
+    argv = [sys.executable, *(["-P"] if sys.version_info >= (3, 11) else []), "-m", "agent_voice", "speak"]
     for flag in ("voice", "speed", "lang", "model"):
         value = getattr(args, flag)
         if value is not None:
@@ -201,7 +206,8 @@ def _spawn(args, raw: str, always: bool = False, wait_focus: bool = False) -> in
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
-        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        cwd=SAFE_CWD,
+        env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONSAFEPATH": "1"},
     )
     child.stdin.write(raw.encode("utf-8"))
     child.stdin.close()
