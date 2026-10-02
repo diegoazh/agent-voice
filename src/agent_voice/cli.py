@@ -64,7 +64,7 @@ def _cmd_status(args) -> int:
     try:
         models.resolve(cfg["model"])
         files = "ok"
-    except Exception:
+    except (models.ModelsMissingError, OSError, ValueError):
         files = "missing"
     print("enabled" if cfg["enabled"] else "disabled")
     print(f"voice: {cfg['voice']}")
@@ -157,12 +157,17 @@ def _detach(args, raw: str, always: bool = False) -> int:
 def _speak(args) -> int:
     cfg = config.load()
     if not cfg["enabled"] and not args.always:
+        if args.detach:
+            sys.stdin.read()  # drain, so the writer never blocks or gets EPIPE
         return 0
-    return _speak_text(args, sys.stdin.read(), cfg)
+    return _speak_text(args, sys.stdin.read(), cfg, always=args.always)
 
 
 def _speak_text(args, raw: str, cfg: dict, always: bool = False) -> int:
-    """Shared pipeline for `speak` and `repeat`; the caller decides the enabled flag."""
+    """Shared pipeline for `speak` and `repeat`; the caller decides the enabled flag.
+
+    `always` is forwarded to a detached child so it also bypasses the enabled flag.
+    """
     if args.detach:
         return _detach(args, raw, always=always)
     chunks = text.chunks(raw)

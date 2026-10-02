@@ -490,3 +490,52 @@ def test_speak_always_flag_speaks_even_when_disabled(home, spy, monkeypatch):
     monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
     assert main(["speak", "--always"]) == 0
     assert len(spy.speaks) == 1
+
+
+# --- T11 hardening ---------------------------------------------------------
+
+
+class TrackedStdin(io.StringIO):
+    reads = 0
+
+    def read(self, *a):
+        TrackedStdin.reads += 1
+        return super().read(*a)
+
+
+@pytest.mark.parametrize("error", [None, OSError("disk"), ValueError("bad variant")])
+def test_status_reports_missing_for_expected_errors(home, monkeypatch, capsys, error):
+    def resolve(variant, **k):
+        raise error or __import__("agent_voice.models", fromlist=["x"]).ModelsMissingError("gone")
+
+    monkeypatch.setattr("agent_voice.models.resolve", resolve)
+    assert main(["status"]) == 0
+    assert "model files: missing" in capsys.readouterr().out
+
+
+def test_status_does_not_mask_unexpected_errors_as_missing(home, monkeypatch):
+    def resolve(variant, **k):
+        raise RuntimeError("real bug")
+
+    monkeypatch.setattr("agent_voice.models.resolve", resolve)
+    with pytest.raises(RuntimeError, match="real bug"):
+        main(["status"])
+
+
+def test_detach_when_disabled_still_drains_stdin(home, monkeypatch):
+    TrackedStdin.reads = 0
+    monkeypatch.setattr(sys, "stdin", TrackedStdin("Hola."))
+    monkeypatch.setattr("agent_voice.cli.subprocess.Popen", FakePopen)
+    FakePopen.instances = []
+    assert main(["speak", "--detach"]) == 0
+    assert TrackedStdin.reads == 1 and FakePopen.instances == []
+
+
+def test_speak_always_detach_forwards_always_to_the_child(home, monkeypatch):
+    FakePopen.instances = []
+    stdin(monkeypatch, "Hola.")
+    monkeypatch.setattr("agent_voice.cli.subprocess.Popen", FakePopen)
+    assert config.load()["enabled"] is False
+    assert main(["speak", "--always", "--detach"]) == 0
+    (child,) = FakePopen.instances
+    assert child.argv == [sys.executable, "-m", "agent_voice", "speak", "--always"]

@@ -116,3 +116,17 @@ def test_real_subprocess_hook_exits_fast_with_empty_stdout(tmp_path):
     assert result.returncode == 0, result.stderr
     assert result.stdout == ""
     assert time.monotonic() - start < 2
+
+
+def test_hook_when_disabled_still_drains_stdin(home, monkeypatch):
+    config.save({"enabled": False})
+    reads = []
+
+    class Tracked(io.StringIO):
+        def read(self, *a):
+            reads.append(1)
+            return super().read(*a)
+
+    monkeypatch.setattr(sys, "stdin", Tracked(json.dumps({"last_assistant_message": "Hola."})))
+    assert main(["hook", "claude"]) == 0
+    assert reads == [1]
