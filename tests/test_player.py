@@ -186,7 +186,7 @@ def _pid_file(run_dir):
     return run_dir / "speaker.pid"
 
 
-def test_pid_file_holds_only_our_pid_while_speaking_and_is_removed_after(run_dir, tmp_path):
+def test_pid_file_holds_only_our_identity_while_speaking_and_is_removed_after(run_dir, tmp_path):
     seen = {}
 
     def play(path):
@@ -196,7 +196,11 @@ def test_pid_file_holds_only_our_pid_while_speaking_and_is_removed_after(run_dir
     player.speak(
         ["one"], fake_synth, play=play, workdir=tmp_path, run_dir=run_dir, handle_signals=False
     )
-    assert seen["content"] == str(os.getpid())
+    # PID plus the OS-reported start time, never any text.
+    assert seen["content"].splitlines() == [
+        str(os.getpid()),
+        player.process_start_time(os.getpid()),
+    ]
     assert seen["mode"] == 0o700
     assert not _pid_file(run_dir).exists()
 
@@ -225,9 +229,14 @@ def sleeper():
         proc.kill()
 
 
+def _write_identity(run_dir, proc, start=None):
+    start = player.process_start_time(proc.pid) if start is None else start
+    run_dir.mkdir(mode=0o700, exist_ok=True)
+    _pid_file(run_dir).write_text(f"{proc.pid}\n{start}")
+
+
 def test_previous_live_speaker_is_terminated(run_dir, tmp_path, sleeper):
-    run_dir.mkdir(mode=0o700)
-    _pid_file(run_dir).write_text(str(sleeper.pid))
+    _write_identity(run_dir, sleeper)
     seen = {}
 
     def play(path):
@@ -237,7 +246,7 @@ def test_previous_live_speaker_is_terminated(run_dir, tmp_path, sleeper):
         ["one"], fake_synth, play=play, workdir=tmp_path, run_dir=run_dir, handle_signals=False
     )
     assert sleeper.wait(WAIT) == -signal.SIGTERM
-    assert seen["pid_file"] == str(os.getpid())
+    assert seen["pid_file"].splitlines()[0] == str(os.getpid())
 
 
 def test_stale_pid_file_is_ignored_and_nothing_is_signalled(run_dir, tmp_path, monkeypatch):
@@ -259,11 +268,71 @@ def test_stale_pid_file_is_ignored_and_nothing_is_signalled(run_dir, tmp_path, m
 
 
 def test_stop_terminates_the_current_speaker_and_clears_the_pid_file(run_dir, sleeper):
-    run_dir.mkdir(mode=0o700)
-    _pid_file(run_dir).write_text(str(sleeper.pid))
+    _write_identity(run_dir, sleeper)
     assert player.stop(run_dir) is True
     assert sleeper.wait(WAIT) == -signal.SIGTERM
     assert not _pid_file(run_dir).exists()
+
+
+def test_pid_reused_by_an_unrelated_live_process_is_never_signalled_by_speak(
+    run_dir, tmp_path, sleeper
+):
+    _write_identity(run_dir, sleeper, start="Thu Jan  1 00:00:00 1970")
+    rec = Recorder()
+    player.speak(
+        ["one"], fake_synth, play=rec, workdir=tmp_path, run_dir=run_dir, handle_signals=False
+    )
+    assert rec.played == [b"WAV:one"]
+    assert sleeper.poll() is None
+
+
+def test_pid_reused_by_an_unrelated_live_process_is_never_signalled_by_stop(run_dir, sleeper):
+    _write_identity(run_dir, sleeper, start="Thu Jan  1 00:00:00 1970")
+    assert player.stop(run_dir) is False
+    assert sleeper.poll() is None
+    assert not _pid_file(run_dir).exists()
+
+
+def test_old_format_pid_only_file_is_never_signalled(run_dir, tmp_path, sleeper):
+    run_dir.mkdir(mode=0o700)
+    _pid_file(run_dir).write_text(str(sleeper.pid))
+    assert player.stop(run_dir) is False
+    assert sleeper.poll() is None
+    assert not _pid_file(run_dir).exists()
+    _pid_file(run_dir).write_text(str(sleeper.pid))
+    player.speak(
+        ["one"], fake_synth, play=Recorder(), workdir=tmp_path, run_dir=run_dir,
+        handle_signals=False,
+    )
+    assert sleeper.poll() is None
+
+
+def test_unreadable_start_time_is_treated_as_stale_and_nothing_is_signalled(
+    run_dir, tmp_path, sleeper
+):
+    _write_identity(run_dir, sleeper)
+    assert player.stop(run_dir, start_time=lambda pid: None) is False
+    assert sleeper.poll() is None
+    _write_identity(run_dir, sleeper)
+    player.speak(
+        ["one"], fake_synth, play=Recorder(), workdir=tmp_path, run_dir=run_dir,
+        handle_signals=False, start_time=lambda pid: None,
+    )
+    assert sleeper.poll() is None
+
+
+def test_process_start_time_is_none_for_a_dead_pid():
+    dead = subprocess.Popen([sys.executable, "-c", "pass"])
+    dead.wait()
+    assert player.process_start_time(dead.pid) is None
+
+
+def test_process_start_time_is_none_when_ps_is_missing(monkeypatch):
+    def boom(*a, **k):
+        raise FileNotFoundError("ps")
+
+    monkeypatch.setattr(player.subprocess, "run", boom)
+    assert player.process_start_time(os.getpid()) is None
 
 
 def test_stop_without_a_speaker_returns_false(run_dir):
