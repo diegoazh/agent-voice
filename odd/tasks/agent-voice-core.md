@@ -274,6 +274,19 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
 - Owner request (2026-10-02): run one general review of the whole
   `feat/core-cli` branch (from 20c93bb) after T9.
 
+- Real install (owner authorized 2026-10-02): `uv tool install` ->
+  `~/.local/bin/agent-voice` 0.1.0; `install claude --config-dir ~/.claude
+  --config-dir ~/.claude-work` -> only `hooks.Stop` changed in both files
+  (other hooks and keys verified identical by hash). Voice left disabled;
+  skhd snippet handed to the owner to paste. INCIDENT: the real
+  `~/.claude/settings.json` already held `/opt/bin/agent-voice hook claude`
+  (the tests' fake path) plus a `.agent-voice.bak` -> a test run (likely a
+  mutation run of the default-dir test) wrote to the real config. The real
+  install replaced the entry; the `.bak` holds the pre-incident settings.
+  Fixed in `c7da6df` (tests isolate HOME/CLAUDE_CONFIG_DIR/XDG_* and a
+  session guard fails if real settings change; mutation-proved). RDD:
+  medium, under budget.
+
 ## Backlog (owner, 2026-10-02, later)
 
 - **Feature 2 (next, high priority):** Pi adapter (hook + focus gating +
