@@ -75,7 +75,7 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
 | T10 | Adapters + repeat readers for Codex, Pi, OpenCode, Gemini | later | pending |
 | T11 | Hardening of review follow-ups (owner approved 2026-10-02) | delegated | done except item 4 (moved to T12) |
 | T13 | Hotkeys (owner 2026-10-02): `agent-voice keys skhd` snippet (owner pastes it), `toggle` command, `repeat` follows the focused herdr pane; keys ctrl+alt q (stop) / r (repeat) / v (toggle), conflict-checked | delegated | done `49b7610`, `189881f`, `018d272` |
-| T14 | Owner answers 2026-10-02: `agent-voice pending-wait [30m\|off]` CLI (default no limit) shown in status; waiter keeps waiting on unknown focus (no change); waiter checks pane existence every ~10 s even with Ghostty in background; `repeat` on a resolved herdr pane without transcript says nothing (exit 1) instead of falling back | delegated | in progress |
+| T14 | Owner answers 2026-10-02: `agent-voice pending-wait [30m\|off]` CLI (default no limit) shown in status; waiter keeps waiting on unknown focus (no change); waiter checks pane existence every ~10 s even with Ghostty in background; `repeat` on a resolved herdr pane without transcript says nothing (exit 1) instead of falling back | delegated | done `79f0751`, `25724f5`, `e0efd4a` |
 | T12 | Focus gating (owner 2026-10-02): speak only when the session has focus (Ghostty frontmost + herdr pane focused); otherwise keep the reply pending in memory and speak it when that pane gains focus; plus T11 item 4 fix | delegated | done `83e9abf`, `b989b5e`, `4a5b8f3` (open product questions) |
 
 ### Acceptance criteria (summary)
