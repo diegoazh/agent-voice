@@ -359,3 +359,38 @@ def test_non_dict_hook_entries_are_left_alone(tmp_path):
     (tmp_path / "settings.json").write_text(json.dumps(body))
     assert main(["uninstall", "claude", "--config-dir", str(tmp_path)]) == 0
     assert read(tmp_path) == body
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"hooks": {"Stop": []}, "y": 2},
+        {"hooks": {}, "y": 2},
+        {"hooks": {"Stop": []}},
+        {"hooks": {"PreToolUse": []}},
+    ],
+)
+def test_install_then_uninstall_restores_pre_existing_empty_containers(tmp_path, body):
+    (tmp_path / "settings.json").write_text(json.dumps(body))
+    assert main(["install", "claude", "--config-dir", str(tmp_path)]) == 0
+    assert main(["uninstall", "claude", "--config-dir", str(tmp_path)]) == 0
+    assert read(tmp_path) == body
+
+
+def test_install_then_uninstall_still_removes_containers_install_created(tmp_path):
+    (tmp_path / "settings.json").write_text(json.dumps({"y": 2, "hooks": {"PreToolUse": []}}))
+    main(["install", "claude", "--config-dir", str(tmp_path)])
+    main(["uninstall", "claude", "--config-dir", str(tmp_path)])
+    assert read(tmp_path) == {"y": 2, "hooks": {"PreToolUse": []}}
+    (tmp_path / "settings.json").write_text(json.dumps({"y": 2}))
+    (tmp_path / "settings.json.agent-voice.bak").write_text(json.dumps({"y": 2}))
+    main(["install", "claude", "--config-dir", str(tmp_path)])
+    main(["uninstall", "claude", "--config-dir", str(tmp_path)])
+    assert read(tmp_path) == {"y": 2}
+
+
+def test_uninstall_with_an_unreadable_backup_falls_back_to_removing_emptied_containers(tmp_path):
+    main(["install", "claude", "--config-dir", str(tmp_path)])
+    (tmp_path / "settings.json.agent-voice.bak").write_text("{broken")
+    assert main(["uninstall", "claude", "--config-dir", str(tmp_path)]) == 0
+    assert read(tmp_path) == {}

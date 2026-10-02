@@ -235,7 +235,7 @@ def _apply(config_dirs, edit) -> list:
         settings = _load(path)
         before = json.dumps(settings)
         try:
-            edit(settings)
+            edit(settings, path)
         except SettingsError as exc:
             raise SettingsError(f"{path}: {exc}") from exc
         plans.append((path, settings, json.dumps(settings) != before))
@@ -256,11 +256,28 @@ def _apply(config_dirs, edit) -> list:
 def install(config_dirs) -> list:
     """Return (path, changed) for each config dir; raise SettingsError before any write."""
     command = hook_command()
-    return _apply(config_dirs, lambda s: _plan_install(s, command))
+    return _apply(config_dirs, lambda s, _path: _plan_install(s, command))
 
 
-def _plan_uninstall(settings: dict) -> dict:
-    """Remove our entry; delete only the containers that this removal emptied."""
+def _pre_install_settings(path: Path):
+    """The settings as they were before install: the one-time backup, or None if unknown.
+
+    The backup only exists when settings.json existed at the first install, so a missing or
+    unreadable backup means "no containers to preserve" (installing created them all).
+    """
+    try:
+        data = json.loads(path.with_name(path.name + ".agent-voice.bak").read_text())
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _plan_uninstall(settings: dict, path: Path) -> dict:
+    """Remove our entry; delete only the containers that install created.
+
+    A `hooks` object or `Stop` list that was already in the file before install (judged
+    from the install backup) is kept even if our removal leaves it empty.
+    """
     hooks = settings.get("hooks")
     stop = hooks.get("Stop") if isinstance(hooks, dict) else None
     if not isinstance(stop, list):
@@ -278,11 +295,14 @@ def _plan_uninstall(settings: dict) -> dict:
             kept.append(group)
     if not removed:
         return settings
-    if kept:
+    before = _pre_install_settings(path)
+    old_hooks = before.get("hooks") if before else None
+    had_stop = isinstance(old_hooks, dict) and isinstance(old_hooks.get("Stop"), list)
+    if kept or had_stop:
         hooks["Stop"] = kept
     else:
         del hooks["Stop"]
-        if not hooks:
+        if not hooks and not isinstance(old_hooks, dict):
             del settings["hooks"]
     return settings
 
