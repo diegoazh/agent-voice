@@ -264,7 +264,9 @@ class AfplayPlayer:
 
     def __init__(self, command=("afplay",)):
         self._command = list(command)
-        self._lock = threading.Lock()
+        # Re-entrant: the SIGTERM handler calls terminate() on the main thread, possibly
+        # while that same thread holds the lock inside __call__ (a plain Lock deadlocks).
+        self._lock = threading.RLock()
         self._proc = None
         self._terminated = False
 
@@ -272,8 +274,10 @@ class AfplayPlayer:
         with self._lock:
             if self._terminated:
                 return
-            self._proc = subprocess.Popen([*self._command, path])
-        self._proc.wait()
+            proc = self._proc = subprocess.Popen([*self._command, path])
+            if self._terminated:  # the handler ran during the spawn, before _proc was set
+                proc.terminate()
+        proc.wait()
 
     def terminate(self):
         with self._lock:

@@ -523,3 +523,58 @@ def test_a_failing_sweep_never_breaks_speaking(run_dir, tmp_path, monkeypatch):
     rec = Recorder()
     player.speak(["one"], fake_synth, play=rec, workdir=tmp_path, run_dir=run_dir, handle_signals=False)
     assert rec.played == [b"WAV:one"]
+
+
+# --- T15 G7: SIGTERM handler vs the AfplayPlayer lock ------------------------
+
+
+class _FakeProc:
+    def __init__(self):
+        self.terminated = False
+
+    def poll(self):
+        return None
+
+    def terminate(self):
+        self.terminated = True
+
+    def wait(self):
+        return 0
+
+
+def _call_in_thread(target, timeout=2):
+    done = []
+    t = threading.Thread(target=lambda: done.append(target()), daemon=True)
+    t.start()
+    t.join(timeout)
+    return not t.is_alive()
+
+
+def test_sigterm_handler_running_while_the_player_holds_its_lock_does_not_deadlock(monkeypatch):
+    """The handler runs on the main thread, possibly while `__call__` holds the lock."""
+    afplay = player.AfplayPlayer(command=("afplay",))
+    proc = _FakeProc()
+
+    def popen(argv, **kw):
+        afplay.terminate()  # what the SIGTERM handler does, delivered inside the locked region
+        return proc
+
+    monkeypatch.setattr(player.subprocess, "Popen", popen)
+    assert _call_in_thread(lambda: afplay("x.wav")), "deadlock: terminate() blocked on the lock"
+    assert proc.terminated, "a SIGTERM delivered during spawn must still stop the new afplay"
+
+
+def test_terminate_before_a_call_prevents_playback(monkeypatch):
+    afplay = player.AfplayPlayer(command=("afplay",))
+    monkeypatch.setattr(player.subprocess, "Popen", lambda *a, **k: pytest.fail("spawned"))
+    afplay.terminate()
+    afplay("x.wav")
+
+
+def test_terminate_stops_a_running_afplay(monkeypatch):
+    afplay = player.AfplayPlayer(command=("afplay",))
+    proc = _FakeProc()
+    monkeypatch.setattr(player.subprocess, "Popen", lambda *a, **k: proc)
+    afplay("x.wav")
+    afplay.terminate()
+    assert proc.terminated
