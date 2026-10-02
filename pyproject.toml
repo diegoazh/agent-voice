@@ -21,6 +21,7 @@ packages = ["src/agent_voice"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["integration: uses the real Kokoro model (skipped if model files are missing)"]
 
 [tool.coverage.run]
 branch = true
