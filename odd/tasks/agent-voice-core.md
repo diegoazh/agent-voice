@@ -74,7 +74,7 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
 | T9 | `agent-voice repeat` with Claude Code transcript reader | delegated | done `4f56390` |
 | T10 | Adapters + repeat readers for Codex, Pi, OpenCode, Gemini | later | pending |
 | T11 | Hardening of review follow-ups (owner approved 2026-10-02) | delegated | done except item 4 (moved to T12) |
-| T13 | Hotkeys (owner 2026-10-02): `agent-voice keys skhd` snippet (owner pastes it), `toggle` command, `repeat` follows the focused herdr pane; keys ctrl+alt q (stop) / r (repeat) / v (toggle), conflict-checked | delegated | in progress |
+| T13 | Hotkeys (owner 2026-10-02): `agent-voice keys skhd` snippet (owner pastes it), `toggle` command, `repeat` follows the focused herdr pane; keys ctrl+alt q (stop) / r (repeat) / v (toggle), conflict-checked | delegated | done `49b7610`, `189881f`, `018d272` |
 | T12 | Focus gating (owner 2026-10-02): speak only when the session has focus (Ghostty frontmost + herdr pane focused); otherwise keep the reply pending in memory and speak it when that pane gains focus; plus T11 item 4 fix | delegated | done `83e9abf`, `b989b5e`, `4a5b8f3` (open product questions) |
 
 ### Acceptance criteria (summary)
@@ -220,6 +220,20 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
   Open product questions: unknown focus while waiting; pane gone while
   Ghostty in background; `pending_max_wait_s` default.
   RDD for T11+T12: pending (covered by the general branch review).
+- T13 `49b7610` toggle, `189881f` keys skhd, `018d272` repeat follows the
+  focused herdr pane (herdr `agent_session.value` = Claude session id ->
+  exact transcript; then pane cwd project; then previous behavior; herdr
+  bin HERDR_BIN_PATH > PATH > /opt/homebrew/bin/herdr). 425 tests;
+  cli/herdr/claude 100%/100%. TDD deviation: one collective RED per new
+  module/command (mutation-proofed). Independent verifier: PASS on all
+  criteria; skhd-like minimal env `repeat --detach` returned in 0.19 s and
+  resolved by session id. Minor: herdr.py:36 PermissionError does not try
+  the next candidate. Incident: verifier ran `skhd --help`, which started a
+  second skhd instance; it killed only that instance (owner daemon pid 9147
+  untouched). Snippet points at the repo venv until a global install.
+  Open owner questions: pending max wait; unknown focus while waiting;
+  pane gone while Ghostty in background; repeat on a focused non-Claude
+  pane without transcript (falls back to newest overall today).
 - Owner request (2026-10-02): run one general review of the whole
   `feat/core-cli` branch (from 20c93bb) after T9.
 
