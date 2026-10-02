@@ -666,3 +666,24 @@ def test_detach_waiting_spawns_a_waiter_child_and_registers_its_pid(home, monkey
     assert child.argv == [sys.executable, "-m", "agent_voice", "speak", "--wait-focus"]
     assert child.stdin.data == b"Hola SECRETMARKER." and child.stdin.closed
     assert registered == [("w1:p1", child.pid)]
+
+
+# --- toggle ---------------------------------------------------------------
+
+
+def test_toggle_flips_the_flag_and_prints_the_new_state(home, monkeypatch, capsys):
+    calls = []
+    monkeypatch.setattr("agent_voice.player.stop", lambda *a, **k: calls.append("stop"))
+    monkeypatch.setattr("agent_voice.waiter.cancel_all", lambda **k: calls.append("cancel"))
+    config.save({"enabled": False})
+    assert main(["toggle"]) == 0
+    assert config.load()["enabled"] is True
+    assert capsys.readouterr().out == "enabled\n"
+    assert calls == []  # turning on never stops anything
+    assert main(["toggle"]) == 0
+    assert config.load()["enabled"] is False
+    assert capsys.readouterr().out == "disabled\n"
+    assert calls == ["stop", "cancel"]  # turning off behaves exactly like `off`
+    assert main(["toggle"]) == 0
+    assert config.load()["enabled"] is True
+    assert capsys.readouterr().out == "enabled\n"

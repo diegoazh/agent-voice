@@ -13,6 +13,7 @@ def _build_parser():
     sub.add_parser("on", help="enable automatic speaking")
     sub.add_parser("off", help="disable automatic speaking and stop playback")
     sub.add_parser("stop", help="stop the current utterance")
+    sub.add_parser("toggle", help="flip automatic speaking (turning it off also stops playback)")
     sub.add_parser("status", help="show settings and whether model files are present")
     voice = sub.add_parser("voice", help="show or set the default voice")
     voice.add_argument("name", nargs="?")
@@ -53,6 +54,16 @@ def _cmd_off(args) -> int:
     config.save({"enabled": False})
     player.stop()
     waiter.cancel_all()
+    return 0
+
+
+def _cmd_toggle(args) -> int:
+    if config.load()["enabled"]:
+        _cmd_off(args)
+        print("disabled")
+    else:
+        _cmd_on(args)
+        print("enabled")
     return 0
 
 
@@ -341,6 +352,7 @@ COMMANDS = {
     "on": _cmd_on,
     "off": _cmd_off,
     "stop": _cmd_stop,
+    "toggle": _cmd_toggle,
     "status": _cmd_status,
 }
 
