@@ -67,8 +67,8 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
 | T2 | Package scaffold with uv (src layout, pytest, pytest-cov, CLI entry point) | delegated | done `eaeac8e` |
 | T3 | Text cleaning: markdown -> prose, placeholders, simple tables as lists, sentence chunking | delegated | done `ef3b4a0`, `dc2df71` |
 | T4 | Model store: paths, SHA256-pinned download, variant selection | delegated | done `1ca6a6b` |
-| T5 | Synthesis engine with espeak short-path workaround | delegated | pending |
-| T6 | Pipelined playback with afplay, cut previous utterance, no text on disk | delegated | pending |
+| T5 | Synthesis engine with espeak short-path workaround | delegated | done `13dd059` |
+| T6 | Pipelined playback with afplay, cut previous utterance, no text on disk | delegated | done `2cfd65e`, `21a95b8` |
 | T7 | CLI: stdin speak, on/off/status, voice/model persistent config, flags | delegated | pending |
 | T8 | Claude Code adapter + `agent-voice install claude` (~/.claude, ~/.claude-work); verify Stop-hook text excludes intermediate text | delegated | pending |
 | T9 | `agent-voice repeat` with Claude Code transcript reader | delegated | pending |
@@ -131,6 +131,28 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
 - RDD: range da6e02a..1ca6a6b assessed medium (627 lines); owner declined
   review for this candidate.
 
+- T5 `13dd059` feat(engine): Engine over kokoro_onnx (em_alex, es-419,
+  speed 0.5-2.0), in-memory WAV, espeak workaround. Finding: espeak-ng reads
+  its relative data path on every phonemization, so cwd is switched around
+  Kokoro construction and each create() call (process-wide, restored in
+  finally); applied only when the data path exceeds 100 chars. Integration
+  test with the real fp32 model passes (~2.3 s incl. load; later calls
+  ~0.5 s). engine.py 100%/100%. One RED per behavior observed; 3 behaviors
+  passed first run (1 mutation-proven). Independent verifier: PASS.
+- T6 `2cfd65e` + `21a95b8` feat/fix(player): pipelined playback (bounded
+  queue), private 0700 temp dir, WAV deleted after each play, flock-guarded
+  pid file holding PID + process start time; previous speaker SIGTERMed
+  only if alive and start time matches (PID-reuse safety fix requested by
+  orchestrator). player.py 94.4% line / 91.7% branch; 3 stable runs.
+  Independent verifier: PASS incl. real two-process cut (0.28 s), unrelated
+  process never signalled, marker text never on disk. Note: `play` errors
+  propagate; T7 CLI must catch them.
+- RDD: range d459cb1..21a95b8 assessed HIGH (process spawning); owner
+  declined review for this candidate; RDD-off high tier satisfied by writer
+  self-verification + independent verifier.
+- Owner request (2026-10-02): run one general review of the whole
+  `feat/core-cli` branch (from 20c93bb) after T9.
+
 ## Backlog (owner, 2026-10-02, later)
 
 - Read selected or copied text aloud (selection/clipboard), as an additional
@@ -138,4 +160,4 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
 
 ## Next step
 
-T5 synthesis engine (require one observed RED per behavior).
+T7 CLI.
