@@ -254,3 +254,46 @@ def test_only_text_typed_blocks_are_spoken(tmp_path):
         ],
     )
     assert claude.last_reply([tmp_path]) == "spoken"
+
+
+def test_very_long_line_is_read_in_linear_time_with_linear_block_reads(tmp_path, monkeypatch):
+    import time
+
+    monkeypatch.setattr(claude, "_BLOCK", 32)
+    huge = entry("user", text("y" * 2_000_000))
+    session = write_session(
+        tmp_path,
+        "-a",
+        "s",
+        [entry("assistant", text("the real reply")), huge, entry("user", tool_result())],
+    )
+    size = session.stat().st_size
+    reads = []
+    real_open = open
+
+    class Counting:
+        def __init__(self, fh):
+            self.fh = fh
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            self.fh.close()
+
+        def __getattr__(self, name):
+            attr = getattr(self.fh, name)
+            if name != "read":
+                return attr
+
+            def counted(n=-1):
+                reads.append(n)
+                return attr(n)
+
+            return counted
+
+    monkeypatch.setattr(claude, "open", lambda *a, **k: Counting(real_open(*a, **k)), raising=False)
+    start = time.monotonic()
+    assert claude.last_reply([tmp_path]) == "the real reply"
+    assert time.monotonic() - start < 3
+    assert len(reads) <= size // 32 + 2

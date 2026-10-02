@@ -45,18 +45,26 @@ _BLOCK = 64 * 1024
 
 
 def _reverse_lines(path):
-    """Yield the file's lines (bytes) last to first, reading backwards in blocks."""
+    """Yield the file's lines (bytes) last to first, reading backwards in blocks.
+
+    Linear in the file size: the partial line carried across blocks is kept as
+    a list of chunks and joined once, when its start is found.
+    """
     with open(path, "rb") as fh:
         pos = fh.seek(0, os.SEEK_END)
-        tail = b""
+        pending = []  # chunks of the current line, newest file position first
         while pos > 0:
             step = min(_BLOCK, pos)
             pos -= step
             fh.seek(pos)
-            lines = (fh.read(step) + tail).split(b"\n")
-            tail = lines[0]
-            yield from reversed(lines[1:])
-        yield tail
+            parts = fh.read(step).split(b"\n")
+            if len(parts) == 1:
+                pending.append(parts[0])
+                continue
+            yield parts[-1] + b"".join(reversed(pending))
+            yield from reversed(parts[1:-1])
+            pending = [parts[0]]
+        yield b"".join(reversed(pending))
 
 
 def last_reply(config_dirs, cwd=None):
