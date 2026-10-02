@@ -239,3 +239,33 @@ def test_detectors_without_a_pane_check_still_work():
     clock, det = Clock(), Script(False, False, True)
     assert not hasattr(det, "check_pane")
     assert wait(det, clock, pane_check_interval=0.5) is True
+
+
+# --- T15 G5: a waiter does not outlive a herdr that keeps failing -----------
+
+
+def test_gives_up_after_continuous_unknown_focus_without_speaking():
+    clock, det = Clock(), Script(None)
+    assert wait(det, clock, unknown_give_up=30) is False
+    assert clock.now == pytest.approx(30.0)
+
+
+def test_continuous_detector_errors_also_give_up():
+    clock = Clock()
+    assert wait(Script(RuntimeError("boom")), clock, unknown_give_up=30) is False
+    assert clock.now == pytest.approx(30.0)
+
+
+def test_a_known_state_resets_the_unknown_streak():
+    clock = Clock()
+    # 20s unknown, one known "not focused", then 20s unknown again, then focused:
+    # never 30 s in a row, so it keeps waiting and finally speaks.
+    det = Script(*([None] * 40 + [False] + [None] * 40 + [True]))
+    assert wait(det, clock, unknown_give_up=30) is True
+
+
+def test_default_unknown_give_up_is_ten_minutes_and_known_state_waits_forever():
+    assert waiter.UNKNOWN_GIVE_UP == 600.0
+    clock = Clock()
+    det = Script(*([False] * 1500 + [True]))  # 750 s of known "not focused" is fine
+    assert wait(det, clock) is True
