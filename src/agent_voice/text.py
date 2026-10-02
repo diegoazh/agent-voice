@@ -16,8 +16,15 @@ CODE_INLINE = "ver el código en el texto"
 TABLE_SENTENCE = "Ver la tabla en el texto."
 LINK_INLINE = "ver el link en el texto"
 
+_SENTENCE_END = ".!?…"
+_TERMINAL = _SENTENCE_END + ":;"
+_CLOSERS = "\"'”’»)]}"
 _FENCE = re.compile(r"^\s*(```|~~~)")
 _INLINE_CODE = re.compile(r"`[^`\n]+`")
+MAX_IDENTIFIER_CHARS = 40
+_IDENTIFIER = re.compile(r"[\w.\-]+(?:\(\))?")
+_SLASH_PAIR = re.compile(r"[^\W\d_]+/[^\W\d_]+")
+_SENTENCE_BREAK = re.compile(rf"[{re.escape(_SENTENCE_END)}][{re.escape(_CLOSERS)}]*\s")
 _IMAGE = re.compile(r"!\[([^\]\n]*)\]\([^)\n]*\)")
 _HTML_TAG = re.compile(r"</?[A-Za-z][^>\n]*>")
 _EMPHASIS = (
@@ -38,9 +45,6 @@ MAX_TABLE_ROWS = 8
 _HASH = re.compile(r"\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,64}\b", re.IGNORECASE)
 _SPACE_BEFORE_PUNCT = re.compile(r"\s+([.,;:!?…])")
 _DECORATIVE = frozenset("•·●○■□▪▫→←↑↓↔⇒⇐")
-_SENTENCE_END = ".!?…"
-_TERMINAL = _SENTENCE_END + ":;"
-_CLOSERS = "\"'”’»)]}"
 _MD_LINK = re.compile(r"\[([^\]\n]*)\]\([^)\n]*\)")
 _AUTOLINK = re.compile(r"<(?:https?://|www\.)[^>\s]*>")
 _URL = re.compile(r"(?:https?://|www\.)[^\s<>\]\)]*[^\s<>\]\).,;:!?]")
@@ -100,9 +104,51 @@ def _collapse_repeats(text: str) -> str:
     return text
 
 
+def _speak_identifier(token: str) -> str:
+    """Speak an identifier: drop "()", dots become " punto ", "_" and "-" become spaces."""
+    token = token.removesuffix("()")
+    token = token.replace(".", " punto ").replace("_", " ").replace("-", " ")
+    return " ".join(token.split())
+
+
+def _inline_code(line: str) -> str:
+    """Replace each inline code span by what is worth saying aloud.
+
+    - Identifier (letters/digits/"_"/"."/"-", optional trailing "()", at most
+      MAX_IDENTIFIER_CHARS): spoken without symbols, e.g. `round()` -> "round",
+      `ROUND_HALF_UP` -> "ROUND HALF UP", `kokoro-onnx` -> "kokoro onnx",
+      `cli.py` -> "cli punto py". A bare two-word `y/o` is read as written.
+    - URL or path (per the prose heuristics): the link placeholder.
+    - Anything else is real code: the code placeholder, at most once per
+      sentence of the line; further real-code spans in it are dropped.
+    """
+    state = {"end": 0, "has_code": False}
+
+    def replace(match: re.Match[str]) -> str:
+        if _SENTENCE_BREAK.search(line, state["end"], match.start()):
+            state["has_code"] = False
+        state["end"] = match.end()
+        body = match.group(0)[1:-1]
+        if _URL.search(body):
+            return LINK_INLINE
+        if len(body) <= MAX_IDENTIFIER_CHARS:
+            if _SLASH_PAIR.fullmatch(body):
+                return body
+            if _IDENTIFIER.fullmatch(body) and any(ch.isalnum() for ch in body):
+                return _speak_identifier(body)
+        if _PATH.search(body):
+            return LINK_INLINE
+        if state["has_code"]:
+            return ""
+        state["has_code"] = True
+        return CODE_INLINE
+
+    return _INLINE_CODE.sub(replace, line)
+
+
 def _inline(line: str) -> str:
     """Clean inline Markdown, links, code and paths of one line."""
-    line = _INLINE_CODE.sub(CODE_INLINE, line)
+    line = _inline_code(line)
     line = _IMAGE.sub(r"\1", line)
     line = _MD_LINK.sub(r"\1", line)
     line = _AUTOLINK.sub(LINK_INLINE, line)

@@ -24,8 +24,77 @@ def test_consecutive_code_blocks_collapse():
     assert clean("```\na\n```\n\n```\nb\n```") == CODE
 
 
-def test_inline_code_becomes_inline_placeholder():
-    assert clean("Usá `foo()` acá.") == "Usá ver el código en el texto acá."
+# 1b. inline code: identifiers, links, real code (once per sentence)
+INLINE = "ver el código en el texto"
+
+
+def test_real_inline_code_becomes_inline_placeholder():
+    assert clean("Usá `x = 1` acá.") == f"Usá {INLINE} acá."
+
+
+@pytest.mark.parametrize(
+    ("span", "spoken"),
+    [
+        ("round()", "round"),
+        ("round", "round"),
+        ("Decimal", "Decimal"),
+        ("ROUND_HALF_UP", "ROUND HALF UP"),
+        ("kokoro-onnx", "kokoro onnx"),
+        ("cli.py", "cli punto py"),
+        ("os.path.join()", "os punto path punto join"),
+        (".env", "punto env"),
+        ("--flag", "flag"),
+        ("v3.5", "v3 punto 5"),
+        ("y/o", "y/o"),
+    ],
+)
+def test_short_identifier_is_spoken_without_symbols(span, spoken):
+    assert clean(f"Usá `{span}` acá.") == f"Usá {spoken} acá."
+
+
+@pytest.mark.parametrize(
+    "span",
+    ["a + b", "foo(x)", "foo(a, b)", "x" * 60, "a=b", "'hi'", "[1]", "--", "...", "a b", "foo()()"],
+)
+def test_non_identifier_spans_are_real_code(span):
+    assert clean(f"Usá `{span}` acá.") == f"Usá {INLINE} acá."
+
+
+def test_identifier_length_limit_is_forty_chars():
+    assert clean(f"Usá `{'x' * 40}` acá.") == f"Usá {'x' * 40} acá."
+    assert clean(f"Usá `{'x' * 41}` acá.") == f"Usá {INLINE} acá."
+
+
+@pytest.mark.parametrize(
+    "span", ["src/payments/round.py:42", "~/.claude/settings.json", "https://x.dev", "tests/a.py", "main.py:7"]
+)
+def test_path_or_url_in_backticks_becomes_link_placeholder(span):
+    assert clean(f"Mirá `{span}` ya.") == f"Mirá {LINK} ya."
+
+
+def test_second_real_code_in_sentence_is_dropped():
+    assert clean("Usá `x = foo(a, b) + 1` y después `y = 2`.") == f"Usá {INLINE} y después."
+
+
+def test_code_placeholder_limit_resets_each_sentence():
+    assert clean("Uno `a + b`. Dos `c + d`.") == f"Uno {INLINE}. Dos {INLINE}."
+
+
+def test_identifiers_and_links_do_not_count_toward_code_limit():
+    assert clean("Con `round()` y `a + b` y `src/a.py` y `c + d`.") == (
+        f"Con round y {INLINE} y {LINK} y."
+    )
+
+
+def test_realistic_reply_sample():
+    text = (
+        "El problema estaba en `src/payments/round.py:42`: el redondeo usaba "
+        "`round()` en vez de `Decimal`. Agregué tests en `tests/test_round.py`."
+    )
+    assert clean(text) == (
+        f"El problema estaba en {LINK}: el redondeo usaba round en vez de Decimal. "
+        f"Agregué tests en {LINK}."
+    )
 
 
 # 2. URLs and links
