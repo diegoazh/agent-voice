@@ -63,8 +63,8 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
 
 | ID | Task | Route | Status |
 |---|---|---|---|
-| T1 | Update `docs/design.md` with today's decisions and spike findings | delegated (docs) | pending |
-| T2 | Package scaffold with uv (src layout, pytest, pytest-cov, CLI entry point) | delegated | pending |
+| T1 | Update `docs/design.md` with today's decisions and spike findings | delegated (docs) | done `1bcea8b` |
+| T2 | Package scaffold with uv (src layout, pytest, pytest-cov, CLI entry point) | delegated | done `eaeac8e` |
 | T3 | Text cleaning: markdown -> prose, placeholders, simple tables as lists, sentence chunking | delegated | pending |
 | T4 | Model store: paths, SHA256-pinned download, variant selection | delegated | pending |
 | T5 | Synthesis engine with espeak short-path workaround | delegated | pending |
@@ -95,10 +95,20 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
   (documentation only).
 - T2 `eaeac8e` build: uv scaffold. Worker evidence: RED
   `ModuleNotFoundError: No module named 'agent_voice.cli'`; GREEN 2 passed,
-  100% line / 100% branch; REFACTOR no-op. Independent verifier: pending.
-- RDD assess: first attempt refused because `odd/` was untracked; this
-  document is committed to resolve it.
+  100% line / 100% branch; REFACTOR no-op. Independent verifier (fresh
+  context): PASS on all criteria (`uv lock --check` ok, 2 passed, 100%/100%,
+  `agent-voice --version` -> `agent-voice 0.1.0`, no AI attribution).
+  Only Python 3.12 exercised. T1 and T2 VERIFIED.
+- RDD: range 20c93bb..HEAD assessed medium (`slice_budget_reached`, 908
+  lines, mostly `uv.lock`); owner declined review for this candidate
+  (`declined_this_candidate`). Reviewed boundary advances to HEAD under
+  ordinary policy.
+
+## Backlog (owner, 2026-10-02, later)
+
+- Read selected or copied text aloud (selection/clipboard), as an additional
+  source besides the agent transcript.
 
 ## Next step
 
-Independent check of T2, RDD assessment of T1/T2, then T3.
+T3 text cleaning.
