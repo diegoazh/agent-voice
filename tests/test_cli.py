@@ -1,5 +1,7 @@
 import io
+import os
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -384,3 +386,107 @@ def test_python_dash_m_status_with_temp_home(tmp_path):
     assert lines[0] == "enabled"
     assert "voice: ef_dora" in lines
     assert "model files: missing" in lines
+
+
+# --- repeat ---------------------------------------------------------------
+
+
+@pytest.fixture
+def last(monkeypatch):
+    calls = []
+
+    def fake(config_dirs, cwd=None):
+        calls.append((list(config_dirs), cwd))
+        return fake.reply
+
+    fake.reply = "Hola SECRETMARKER."
+    fake.calls = calls
+    monkeypatch.setattr("agent_voice.adapters.claude.last_reply", fake)
+    return fake
+
+
+def test_repeat_speaks_last_reply_even_when_disabled(home, spy, last, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", "/cfg")
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    assert config.load()["enabled"] is False
+    assert main(["repeat"]) == 0
+    assert last.calls == [([Path("/cfg")], os.getcwd())]
+    (chunks, _), = spy.speaks
+    assert chunks == ["Hola SECRETMARKER."]
+
+
+def test_repeat_config_dirs_and_overrides(home, spy, last, monkeypatch):
+    config.save({"voice": "em_santa", "speed": 1.2})
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    argv = ["repeat", "--config-dir", "/a", "--config-dir", "/b", "--voice", "ef_dora",
+            "--speed", "0.8", "--lang", "es", "--model", "fp16"]
+    assert main(argv) == 0
+    assert last.calls == [(["/a", "/b"], os.getcwd())]
+    assert spy.resolved == ["fp16"]
+    (_, synth), = spy.speaks
+    synth("x")
+    assert spy.synth_calls == [("x", {"voice": "ef_dora", "speed": 0.8, "lang": "es"})]
+
+
+def test_repeat_uses_config_defaults_without_overrides(home, spy, last, monkeypatch):
+    config.save({"voice": "em_santa", "speed": 1.2, "model": "int8"})
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    assert main(["repeat", "--config-dir", "/a"]) == 0
+    assert spy.resolved == ["int8"]
+    (_, synth), = spy.speaks
+    synth("x")
+    assert spy.synth_calls == [("x", {"voice": "em_santa", "speed": 1.2, "lang": "es-419"})]
+
+
+def test_repeat_nothing_found_exits_one_without_speaking(home, spy, last, capsys):
+    last.reply = None
+    assert main(["repeat", "--config-dir", "/a"]) == 1
+    captured = capsys.readouterr()
+    assert captured.err == "agent-voice: no previous reply found\n"
+    assert captured.out == "" and spy.speaks == []
+
+
+def test_repeat_failure_is_text_free(home, spy, last, monkeypatch, capsys):
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+
+    def boom(*a, **k):
+        raise RuntimeError("SECRETMARKER boom")
+
+    monkeypatch.setattr("agent_voice.player.speak", boom)
+    assert main(["repeat", "--config-dir", "/a"]) == 1
+    err = capsys.readouterr().err
+    assert err == "agent-voice: could not repeat (RuntimeError)\n"
+
+
+def test_repeat_reader_failure_is_text_free(home, spy, last, monkeypatch, capsys):
+    def boom(*a, **k):
+        raise OSError("SECRETMARKER /path")
+
+    monkeypatch.setattr("agent_voice.adapters.claude.last_reply", boom)
+    assert main(["repeat", "--config-dir", "/a"]) == 1
+    assert capsys.readouterr().err == "agent-voice: could not repeat (OSError)\n"
+
+
+def test_repeat_nothing_speakable_is_quiet_success(home, spy, last, monkeypatch):
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [])
+    assert main(["repeat", "--config-dir", "/a"]) == 0
+    assert spy.speaks == []
+
+
+def test_repeat_detach_hands_text_to_child_that_ignores_disabled_flag(home, spy, last, monkeypatch):
+    FakePopen.instances = []
+    monkeypatch.setattr("agent_voice.cli.subprocess.Popen", FakePopen)
+    assert main(["repeat", "--config-dir", "/a", "--detach", "--voice", "ef_dora"]) == 0
+    (child,) = FakePopen.instances
+    assert child.argv == [
+        sys.executable, "-m", "agent_voice", "speak", "--voice", "ef_dora", "--always",
+    ]
+    assert child.stdin.data == b"Hola SECRETMARKER." and child.stdin.closed
+    assert spy.speaks == []
+
+
+def test_speak_always_flag_speaks_even_when_disabled(home, spy, monkeypatch):
+    stdin(monkeypatch, "Hola.")
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    assert main(["speak", "--always"]) == 0
+    assert len(spy.speaks) == 1

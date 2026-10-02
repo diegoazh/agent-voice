@@ -1,10 +1,88 @@
 """Claude Code Stop-hook adapter."""
 
 import argparse
+import glob
 import json
 import os
+import re
 import shutil
 from pathlib import Path
+
+
+def encode_project_dir(cwd) -> str:
+    """Claude Code names a project folder after its cwd, non-alphanumerics -> '-'."""
+    return re.sub(r"[^A-Za-z0-9]", "-", str(cwd))
+
+
+def _newest_session(config_dirs, cwd=None):
+    """Newest session file, preferring the project folder of `cwd` when it exists."""
+    pattern = "projects/*/*.jsonl"
+    if cwd is not None:
+        pattern = f"projects/{glob.escape(encode_project_dir(cwd))}/*.jsonl"
+    for pattern in dict.fromkeys([pattern, "projects/*/*.jsonl"]):
+        files = [f for d in config_dirs for f in Path(d).glob(pattern)]
+        if files:
+            return max(files, key=lambda f: f.stat().st_mtime)
+    return None
+
+
+def _reply_text(entry):
+    message = entry.get("message")
+    content = message.get("content") if isinstance(message, dict) else None
+    if not isinstance(content, list):
+        return None
+    parts = [
+        b["text"]
+        for b in content
+        if isinstance(b, dict) and b.get("type") == "text" and isinstance(b.get("text"), str)
+    ]
+    return "\n".join(parts) if parts else None
+
+
+_BLOCK = 64 * 1024
+
+
+def _reverse_lines(path):
+    """Yield the file's lines (bytes) last to first, reading backwards in blocks."""
+    with open(path, "rb") as fh:
+        pos = fh.seek(0, os.SEEK_END)
+        tail = b""
+        while pos > 0:
+            step = min(_BLOCK, pos)
+            pos -= step
+            fh.seek(pos)
+            lines = (fh.read(step) + tail).split(b"\n")
+            tail = lines[0]
+            yield from reversed(lines[1:])
+        yield tail
+
+
+def last_reply(config_dirs, cwd=None):
+    """Final assistant text of the newest Claude Code session, or None.
+
+    Read-only. Rule: scanning the session from the end, the first non-sidechain
+    assistant entry that has at least one `text` block; its `text` blocks are
+    joined with newlines (`thinking` and `tool_use` blocks are skipped, and
+    earlier assistant entries are ignored), matching Stop's
+    `last_assistant_message`. Malformed lines are skipped.
+    """
+    session = _newest_session(config_dirs, cwd)
+    if session is None:
+        return None
+    for line in _reverse_lines(session):
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if (
+            isinstance(entry, dict)
+            and entry.get("type") == "assistant"
+            and not entry.get("isSidechain")
+        ):
+            reply = _reply_text(entry)
+            if reply:
+                return reply
+    return None
 
 
 def run_hook(raw: str) -> int:

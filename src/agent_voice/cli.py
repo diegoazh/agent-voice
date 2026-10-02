@@ -26,6 +26,14 @@ def _build_parser():
     speak.add_argument("--lang")
     speak.add_argument("--model", choices=sorted(models.VARIANTS))
     speak.add_argument("--detach", action="store_true")
+    speak.add_argument("--always", action="store_true", help=argparse.SUPPRESS)
+    repeat = sub.add_parser("repeat", help="re-speak the last reply from the agent's transcript")
+    repeat.add_argument("--config-dir", action="append", dest="config_dirs", metavar="DIR")
+    repeat.add_argument("--voice")
+    repeat.add_argument("--speed", type=float)
+    repeat.add_argument("--lang")
+    repeat.add_argument("--model", choices=sorted(models.VARIANTS))
+    repeat.add_argument("--detach", action="store_true")
     hook = sub.add_parser("hook", help="agent hook entry point (reads the agent's JSON on stdin)")
     hook.add_argument("agent", choices=["claude"])
     for name, helptext in (("install", "register the hook"), ("uninstall", "remove the hook")):
@@ -124,13 +132,15 @@ def _cmd_download(args) -> int:
     return 0
 
 
-def _detach(args, raw: str) -> int:
+def _detach(args, raw: str, always: bool = False) -> int:
     """Hand the text to a new-session child over a pipe (never touches disk)."""
     argv = [sys.executable, "-m", "agent_voice", "speak"]
     for flag in ("voice", "speed", "lang", "model"):
         value = getattr(args, flag)
         if value is not None:
             argv += [f"--{flag}", str(value)]
+    if always:
+        argv.append("--always")
     child = subprocess.Popen(
         argv,
         stdin=subprocess.PIPE,
@@ -146,11 +156,15 @@ def _detach(args, raw: str) -> int:
 
 def _speak(args) -> int:
     cfg = config.load()
-    if not cfg["enabled"]:
+    if not cfg["enabled"] and not args.always:
         return 0
-    raw = sys.stdin.read()
+    return _speak_text(args, sys.stdin.read(), cfg)
+
+
+def _speak_text(args, raw: str, cfg: dict, always: bool = False) -> int:
+    """Shared pipeline for `speak` and `repeat`; the caller decides the enabled flag."""
     if args.detach:
-        return _detach(args, raw)
+        return _detach(args, raw, always=always)
     chunks = text.chunks(raw)
     if not chunks:
         return 0
@@ -185,6 +199,26 @@ def _cmd_speak(args) -> int:
     except Exception as exc:
         print(f"agent-voice: could not speak ({type(exc).__name__})", file=sys.stderr)
         return 0
+
+
+def _cmd_repeat(args) -> int:
+    """Re-speak the last reply read from the agent's own transcript.
+
+    An explicit user command, so it speaks whether or not automatic speaking is
+    enabled. Nothing is persisted; messages never include reply text.
+    """
+    from agent_voice.adapters import claude
+
+    try:
+        dirs = args.config_dirs or [claude.default_config_dir()]
+        reply = claude.last_reply(dirs, cwd=os.getcwd())
+        if reply is None:
+            print("agent-voice: no previous reply found", file=sys.stderr)
+            return 1
+        return _speak_text(args, reply, config.load(), always=True)
+    except Exception as exc:
+        print(f"agent-voice: could not repeat ({type(exc).__name__})", file=sys.stderr)
+        return 1
 
 
 def _cmd_hook(args) -> int:
@@ -224,6 +258,7 @@ def _cmd_uninstall(args) -> int:
 
 
 COMMANDS = {
+    "repeat": _cmd_repeat,
     "uninstall": _cmd_uninstall,
     "install": _cmd_install,
     "hook": _cmd_hook,
