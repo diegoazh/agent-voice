@@ -69,7 +69,7 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
 | T4 | Model store: paths, SHA256-pinned download, variant selection | delegated | done `1ca6a6b` |
 | T5 | Synthesis engine with espeak short-path workaround | delegated | done `13dd059` |
 | T6 | Pipelined playback with afplay, cut previous utterance, no text on disk | delegated | done `2cfd65e`, `21a95b8` |
-| T7 | CLI: stdin speak, on/off/status, voice/model persistent config, flags | delegated | pending |
+| T7 | CLI: stdin speak, on/off/status, voice/model persistent config, flags | delegated | done `a58304d`, `981c17b`, `16018da` |
 | T8 | Claude Code adapter + `agent-voice install claude` (~/.claude, ~/.claude-work); verify Stop-hook text excludes intermediate text | delegated | pending |
 | T9 | `agent-voice repeat` with Claude Code transcript reader | delegated | pending |
 | T10 | Adapters + repeat readers for Codex, Pi, OpenCode, Gemini | later | pending |
@@ -150,6 +150,23 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
 - RDD: range d459cb1..21a95b8 assessed HIGH (process spawning); owner
   declined review for this candidate; RDD-off high tier satisfied by writer
   self-verification + independent verifier.
+- T7 `a58304d` feat(config) + `981c17b` feat(cli) + `16018da` fix(cli):
+  JSON config (AGENT_VOICE_HOME > XDG_CONFIG_HOME > ~/.config), defaults
+  disabled/em_alex/es-419/fp32/1.0; speak (+ --detach via new-session
+  child, text over pipe), on/off/status, voice, model, download, stop;
+  speak swallows every error with a text-free message and exits 0.
+  cli.py/config.py 100%/100%. Independent verifier FAILED `--detach`
+  (binary pipe received str -> TypeError swallowed -> never spoke; fakes
+  hid it); real audio, cut-previous and `off` passed. RDD: assessed HIGH;
+  owner GRANTED review; 4 lenses confirmed the same CRITICAL defect; one
+  bounded correction `16018da` (27 lines: UTF-8 bytes + PYTHONIOENCODING,
+  strict fake, real-pipe test, RED observed); targeted validation
+  approved; acknowledged, authority burned.
+  Follow-ups (advisory, non-blocking): broad except in status model check
+  (cli.py:49-53, WARNING); stdin not drained when disabled with --detach
+  (cli.py:141-143, WARNING); config values unvalidated; config
+  read-modify-write race; voice validation split; a config test not
+  asserting the raise.
 - Owner request (2026-10-02): run one general review of the whole
   `feat/core-cli` branch (from 20c93bb) after T9.
 
@@ -160,4 +177,4 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
 
 ## Next step
 
-T7 CLI.
+T8 Claude Code adapter.
