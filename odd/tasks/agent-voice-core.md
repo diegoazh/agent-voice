@@ -235,6 +235,25 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
   Open owner questions: pending max wait; unknown focus while waiting;
   pane gone while Ghostty in background; repeat on a focused non-Claude
   pane without transcript (falls back to newest overall today).
+- T14 `79f0751`, `25724f5`, `e0efd4a`: independent verifier PASS on all 4.
+- General review (owner request): whole-branch native review refused
+  (`lens_context_budget_exceeded`, 7199 lines). Replaced, with owner
+  approval, by 8 native slice reviews (detached worktrees under
+  `../agent-voice-worktrees/rv-s1..s8`, each base..end committed-only;
+  owner granted each) — all 8 APPROVED, no blocking findings,
+  acknowledged — plus an independent cross-cutting security audit.
+  Audit HIGH (orchestrator corroborated in source): (1) detached child
+  `python -m agent_voice` (cli.py:189) inherits the hook cwd, so a repo
+  with `agent_voice/` or `json.py` gets code execution; (2) cubic
+  `_HEADING` regex (text.py:39) -> CPU DoS not stoppable by stop/off.
+  MEDIUM: other quadratic regexes; `_is_ours` matches foreign
+  `*agent-voice hook claude`; orphan waiters when herdr breaks (conflicts
+  with owner choices: unlimited wait, keep waiting on unknown). LOW:
+  hook latency on hung herdr/lsappinfo; no reply size cap; PID file
+  PermissionError traceback; relative hook path; leftover WAV after
+  SIGKILL; download without timeout / http redirects. Slice warnings incl.
+  possible SIGTERM lock deadlock in player.py:215-226 (two lenses).
+  Fix task pending owner approval.
 - Owner request (2026-10-02): run one general review of the whole
   `feat/core-cli` branch (from 20c93bb) after T9.
 
