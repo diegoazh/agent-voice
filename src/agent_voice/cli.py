@@ -1,4 +1,5 @@
 import argparse
+import os
 import subprocess
 import sys
 
@@ -130,8 +131,9 @@ def _detach(args, raw: str) -> int:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
     )
-    child.stdin.write(raw)
+    child.stdin.write(raw.encode("utf-8"))
     child.stdin.close()
     return 0
 

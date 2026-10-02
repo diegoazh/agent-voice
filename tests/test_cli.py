@@ -276,6 +276,8 @@ class FakeStdin:
         self.closed = False
 
     def write(self, data):
+        if not isinstance(data, bytes):
+            raise TypeError("a bytes-like object is required")
         self.data = data
 
     def close(self):
@@ -315,10 +317,29 @@ def test_detach_spawns_session_child_with_text_on_stdin_and_returns(home, spy, m
     assert child.kwargs["stdin"] == subprocess.PIPE
     assert child.kwargs["stdout"] == subprocess.DEVNULL
     assert child.kwargs["stderr"] == subprocess.DEVNULL
-    assert child.stdin.data == "Hola SECRETMARKER." and child.stdin.closed
+    assert child.stdin.data == b"Hola SECRETMARKER." and child.stdin.closed
     assert not child.waited
     assert spy.speaks == []
     assert sorted(p.name for p in home.iterdir()) == before
+
+
+def test_detach_real_pipe_delivers_utf8_text(home, tmp_path, monkeypatch):
+    import subprocess
+
+    config.save({"enabled": True})
+    out = tmp_path / "out.txt"
+    stdin(monkeypatch, "¿Querés? ñ")
+    real, kids = subprocess.Popen, []
+
+    def popen(argv, **kw):
+        code = "import sys;open(sys.argv[1],'w',encoding='utf-8').write(sys.stdin.read())"
+        kids.append(real([sys.executable, "-c", code, str(out)], **kw))
+        return kids[0]
+
+    monkeypatch.setattr("agent_voice.cli.subprocess.Popen", popen)
+    assert main(["speak", "--detach"]) == 0
+    assert kids[0].wait(timeout=30) == 0
+    assert out.read_text(encoding="utf-8") == "¿Querés? ñ"
 
 
 def test_detach_when_disabled_spawns_nothing(home, monkeypatch):
