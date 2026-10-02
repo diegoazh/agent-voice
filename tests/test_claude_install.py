@@ -1,3 +1,4 @@
+import os
 import json
 
 import pytest
@@ -185,3 +186,99 @@ def test_uninstall_keeps_hooks_container_when_other_events_exist(tmp_path):
     )
     main(["uninstall", "claude", "--config-dir", str(tmp_path)])
     assert read(tmp_path) == {"hooks": {"SubagentStop": [other]}}
+
+
+# --- T11 hardening ---------------------------------------------------------
+
+
+def test_hook_command_path_is_shell_quoted(tmp_path, monkeypatch):
+    monkeypatch.setattr("agent_voice.adapters.claude.shutil.which", lambda n: "/opt/my bin/agent-voice")
+    assert main(["install", "claude", "--config-dir", str(tmp_path)]) == 0
+    assert read(tmp_path)["hooks"]["Stop"] == [entry("'/opt/my bin/agent-voice' hook claude")]
+    assert main(["install", "claude", "--config-dir", str(tmp_path)]) == 0
+    assert len(read(tmp_path)["hooks"]["Stop"]) == 1
+    assert main(["uninstall", "claude", "--config-dir", str(tmp_path)]) == 0
+    assert read(tmp_path) == {}
+
+
+def test_old_unquoted_entry_is_upgraded_in_place_not_duplicated(tmp_path, monkeypatch):
+    monkeypatch.setattr("agent_voice.adapters.claude.shutil.which", lambda n: "/opt/my bin/agent-voice")
+    (tmp_path / "settings.json").write_text(
+        json.dumps({"hooks": {"Stop": [entry("/opt/my bin/agent-voice hook claude")]}})
+    )
+    assert main(["install", "claude", "--config-dir", str(tmp_path)]) == 0
+    assert read(tmp_path)["hooks"]["Stop"] == [entry("'/opt/my bin/agent-voice' hook claude")]
+
+
+def test_uninstall_recognises_old_unquoted_entry(tmp_path):
+    (tmp_path / "settings.json").write_text(
+        json.dumps({"hooks": {"Stop": [entry("/opt/my bin/agent-voice hook claude")]}})
+    )
+    assert main(["uninstall", "claude", "--config-dir", str(tmp_path)]) == 0
+    assert read(tmp_path) == {}
+
+
+def test_symlinked_settings_is_written_through_and_link_preserved(tmp_path):
+    real_dir = tmp_path / "dotfiles"
+    real_dir.mkdir()
+    target = real_dir / "settings.json"
+    target.write_text(json.dumps({"env": {"A": "1"}}))
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    (cfg / "settings.json").symlink_to(target)
+    assert main(["install", "claude", "--config-dir", str(cfg)]) == 0
+    assert (cfg / "settings.json").is_symlink()
+    assert json.loads(target.read_text()) == {"env": {"A": "1"}, "hooks": {"Stop": [entry()]}}
+    assert sorted(p.name for p in real_dir.iterdir()) == ["settings.json"]
+    assert main(["uninstall", "claude", "--config-dir", str(cfg)]) == 0
+    assert (cfg / "settings.json").is_symlink()
+    assert json.loads(target.read_text()) == {"env": {"A": "1"}}
+
+
+def test_partial_write_reports_changed_and_failed_dirs_and_leaves_no_temp(tmp_path, monkeypatch, capsys):
+    a, b, c = tmp_path / "a", tmp_path / "b", tmp_path / "c"
+    real_replace = os.replace
+
+    def flaky(src, dst):
+        if str(dst).startswith(str(b)):
+            raise OSError(28, "No space left on device")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr("agent_voice.adapters.claude.os.replace", flaky)
+    code = main(["install", "claude", "--config-dir", str(a), "--config-dir", str(b), "--config-dir", str(c)])
+    assert code == 1
+    err = capsys.readouterr().err
+    assert str(a / "settings.json") in err and str(c / "settings.json") in err
+    assert "changed" in err and "failed" in err
+    assert f"{b / 'settings.json'}" in err and "No space left" in err
+    assert (a / "settings.json").exists() and (c / "settings.json").exists()
+    assert not (b / "settings.json").exists()
+    for d in (a, b, c):
+        if d.exists():
+            assert [p.name for p in d.iterdir() if p.name != "settings.json"] == []
+
+
+def test_uninstall_keeps_foreign_empty_stop_list_and_hooks_object(tmp_path):
+    for body in ({"hooks": {"Stop": []}}, {"hooks": {}}, {"hooks": {"Stop": [{"hooks": []}]}}):
+        (tmp_path / "settings.json").write_text(json.dumps(body))
+        assert main(["uninstall", "claude", "--config-dir", str(tmp_path)]) == 0
+        assert read(tmp_path) == body
+
+
+def test_uninstall_keeps_foreign_empty_stop_when_ours_is_in_another_event(tmp_path):
+    body = {"hooks": {"Stop": [], "SubagentStop": [entry()]}}
+    (tmp_path / "settings.json").write_text(json.dumps(body))
+    assert main(["uninstall", "claude", "--config-dir", str(tmp_path)]) == 0
+    assert read(tmp_path) == body
+
+
+def test_shape_error_names_the_settings_file(tmp_path, capsys):
+    (tmp_path / "settings.json").write_text(json.dumps({"hooks": {"Stop": "x"}}))
+    assert main(["install", "claude", "--config-dir", str(tmp_path)]) == 1
+    assert str(tmp_path / "settings.json") in capsys.readouterr().err
+
+
+def test_unreadable_settings_names_the_file(tmp_path, capsys):
+    (tmp_path / "settings.json").mkdir()
+    assert main(["install", "claude", "--config-dir", str(tmp_path)]) == 1
+    assert str(tmp_path / "settings.json") in capsys.readouterr().err

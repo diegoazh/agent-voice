@@ -5,7 +5,9 @@ import glob
 import json
 import os
 import re
+import shlex
 import shutil
+import tempfile
 from pathlib import Path
 
 
@@ -100,7 +102,8 @@ def run_hook(raw: str) -> int:
     return cli._detach(opts, message)
 
 
-HOOK_SUFFIX = "agent-voice hook claude"
+HOOK_ARGS = " hook claude"
+HOOK_NAME = "agent-voice"
 
 
 def default_config_dir() -> Path:
@@ -108,23 +111,44 @@ def default_config_dir() -> Path:
 
 
 def hook_command() -> str:
-    exe = shutil.which("agent-voice") or "agent-voice"
-    return f"{exe} hook claude"
+    exe = shutil.which(HOOK_NAME) or HOOK_NAME
+    return shlex.quote(exe) + HOOK_ARGS
 
 
 def _is_ours(hook) -> bool:
-    return isinstance(hook, dict) and str(hook.get("command", "")).endswith(HOOK_SUFFIX)
+    """Recognises both quoted commands and older unquoted ones."""
+    if not isinstance(hook, dict):
+        return False
+    command = str(hook.get("command", ""))
+    if not command.endswith(HOOK_ARGS):
+        return False
+    return command[: -len(HOOK_ARGS)].rstrip("'\"").endswith(HOOK_NAME)
 
 
 class SettingsError(Exception):
-    """settings.json exists but is not a JSON object."""
+    """A settings.json cannot be read or edited safely; the message names the file."""
+
+
+class PartialWriteError(Exception):
+    """Some settings files were written and others failed (no rollback)."""
+
+    def __init__(self, changed, failed):
+        self.changed = changed
+        self.failed = failed
+        super().__init__("could not write every settings file")
 
 
 def _load(path: Path) -> dict:
-    if not path.exists():
-        return {}
     try:
-        settings = json.loads(path.read_text())
+        raw = path.read_text()
+    except FileNotFoundError:
+        return {}
+    except OSError as exc:
+        raise SettingsError(f"{path} cannot be read ({exc.strerror or type(exc).__name__})") from exc
+    except ValueError as exc:
+        raise SettingsError(f"{path} is not valid JSON") from exc
+    try:
+        settings = json.loads(raw)
     except ValueError as exc:
         raise SettingsError(f"{path} is not valid JSON") from exc
     if not isinstance(settings, dict):
@@ -153,26 +177,51 @@ def _plan_install(settings: dict, command: str) -> dict:
 
 
 def _write(path: Path, settings: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    """Atomically replace the real file (a symlink is written through, not replaced)."""
+    real = Path(os.path.realpath(path))
+    real.parent.mkdir(parents=True, exist_ok=True)
     backup = path.with_name(path.name + ".agent-voice.bak")
-    if path.exists() and not backup.exists():
-        shutil.copy2(path, backup)
-    tmp = path.with_name(path.name + ".agent-voice.tmp")
-    tmp.write_text(json.dumps(settings, indent=2) + "\n")
-    os.replace(tmp, path)
+    if real.exists() and not backup.exists():
+        shutil.copy2(real, backup)
+    fd, tmp = tempfile.mkstemp(dir=real.parent, prefix=real.name + ".", suffix=".agent-voice.tmp")
+    try:
+        with os.fdopen(fd, "w") as fh:
+            fh.write(json.dumps(settings, indent=2) + "\n")
+        if real.exists():
+            shutil.copymode(real, tmp)
+        os.replace(tmp, real)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def _apply(config_dirs, edit) -> list:
-    """Load and edit every settings.json first, so an invalid one changes nothing."""
+    """Load and edit every settings.json first, so an invalid one changes nothing.
+
+    Writing is not transactional: if a write fails, files already written stay
+    written; PartialWriteError reports which were changed and which failed.
+    """
     plans = []
     for d in config_dirs:
         path = Path(d) / "settings.json"
         settings = _load(path)
         before = json.dumps(settings)
-        plans.append((path, edit(settings), json.dumps(settings) != before))
+        try:
+            edit(settings)
+        except SettingsError as exc:
+            raise SettingsError(f"{path}: {exc}") from exc
+        plans.append((path, settings, json.dumps(settings) != before))
+    done, failed = [], []
     for path, settings, changed in plans:
-        if changed:
+        if not changed:
+            continue
+        try:
             _write(path, settings)
+            done.append(path)
+        except OSError as exc:
+            failed.append((path, exc.strerror or type(exc).__name__))
+    if failed:
+        raise PartialWriteError(done, failed)
     return [(path, changed) for path, _, changed in plans]
 
 
@@ -183,19 +232,24 @@ def install(config_dirs) -> list:
 
 
 def _plan_uninstall(settings: dict) -> dict:
+    """Remove our entry; delete only the containers that this removal emptied."""
     hooks = settings.get("hooks")
     stop = hooks.get("Stop") if isinstance(hooks, dict) else None
     if not isinstance(stop, list):
         return settings
     kept = []
+    removed = False
     for group in stop:
         inner = group.get("hooks") if isinstance(group, dict) else None
         if not isinstance(inner, list) or not any(_is_ours(h) for h in inner):
             kept.append(group)
             continue
+        removed = True
         group["hooks"] = [h for h in inner if not _is_ours(h)]
         if group["hooks"]:
             kept.append(group)
+    if not removed:
+        return settings
     if kept:
         hooks["Stop"] = kept
     else:

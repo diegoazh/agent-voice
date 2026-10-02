@@ -231,6 +231,16 @@ def _cmd_hook(args) -> int:
         return 0
 
 
+def _report_partial(exc) -> int:
+    """No rollback: say exactly which settings files changed and which failed."""
+    print("agent-voice: some settings files could not be written", file=sys.stderr)
+    for path in exc.changed:
+        print(f"changed {path}", file=sys.stderr)
+    for path, reason in exc.failed:
+        print(f"failed {path}: {reason}", file=sys.stderr)
+    return 1
+
+
 def _cmd_install(args) -> int:
     from agent_voice.adapters import claude
 
@@ -239,6 +249,8 @@ def _cmd_install(args) -> int:
     except claude.SettingsError as exc:
         print(f"agent-voice: {exc}; nothing changed", file=sys.stderr)
         return 1
+    except claude.PartialWriteError as exc:
+        return _report_partial(exc)
     for path, changed in results:
         print(f"{'updated' if changed else 'unchanged'} {path}")
     return 0
@@ -252,6 +264,8 @@ def _cmd_uninstall(args) -> int:
     except claude.SettingsError as exc:
         print(f"agent-voice: {exc}; nothing changed", file=sys.stderr)
         return 1
+    except claude.PartialWriteError as exc:
+        return _report_partial(exc)
     for path, changed in results:
         print(f"{'updated' if changed else 'unchanged'} {path}")
     return 0
