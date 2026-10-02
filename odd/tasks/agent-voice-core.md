@@ -70,7 +70,7 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
 | T5 | Synthesis engine with espeak short-path workaround | delegated | done `13dd059` |
 | T6 | Pipelined playback with afplay, cut previous utterance, no text on disk | delegated | done `2cfd65e`, `21a95b8` |
 | T7 | CLI: stdin speak, on/off/status, voice/model persistent config, flags | delegated | done `a58304d`, `981c17b`, `16018da` |
-| T8 | Claude Code adapter + `agent-voice install claude` (~/.claude, ~/.claude-work); verify Stop-hook text excludes intermediate text | delegated | pending |
+| T8 | Claude Code adapter + `agent-voice install claude` (~/.claude, ~/.claude-work); verify Stop-hook text excludes intermediate text | delegated | done `0508485`, `a0b5465` |
 | T9 | `agent-voice repeat` with Claude Code transcript reader | delegated | pending |
 | T10 | Adapters + repeat readers for Codex, Pi, OpenCode, Gemini | later | pending |
 
@@ -167,6 +167,22 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
   (cli.py:141-143, WARNING); config values unvalidated; config
   read-modify-write race; voice validation split; a config test not
   asserting the raise.
+- T8 `0508485` feat(claude) + `a0b5465` feat(cli): `agent-voice hook
+  claude` (ignores stop_hook_active, uses last_assistant_message, detached,
+  always exit 0, silent) and `install|uninstall claude [--config-dir ...]`
+  (default $CLAUDE_CONFIG_DIR or ~/.claude; preserves other hooks; backup
+  once; all dirs validated before writing). Docs
+  (https://code.claude.com/docs/en/hooks): `last_assistant_message` is the
+  final assistant text only, not intermediate text between tool calls
+  (resolves the open check). 100%/100% on claude.py and cli.py.
+  Independent verifier: PASS incl. real audio via the hook (return 0.08-0.11
+  s direct), stop_hook_active ignored, no text on disk. RDD: HIGH; owner
+  GRANTED; 4 lenses approved with no blocking findings; acknowledged.
+  Follow-ups (WARNING, advisory): unquoted hook command path; os.replace
+  would replace a symlinked settings.json with a regular file (owner's
+  files are regular files today, checked); partial multi-dir write on
+  OSError; uninstall may drop a foreign empty Stop list; settings error
+  without file location.
 - Owner request (2026-10-02): run one general review of the whole
   `feat/core-cli` branch (from 20c93bb) after T9.
 
@@ -177,4 +193,4 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
 
 ## Next step
 
-T8 Claude Code adapter.
+T9 repeat, then hardening of review follow-ups, then the general branch review.
