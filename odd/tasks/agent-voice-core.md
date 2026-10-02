@@ -104,6 +104,15 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
   (`declined_this_candidate`). Reviewed boundary advances to HEAD under
   ordinary policy.
 
+- T3 `ef3b4a0` feat(text): 69 tests pass; text.py ~99.5% line / 97.4%
+  branch; RED observed per behavior group. Independent verifier: PASS on all
+  criteria, black-box probe included. Only Python 3.12 exercised. RDD:
+  assessed medium; owner declined review for this candidate.
+  Open product question raised by the probe: inline code inside prose
+  produces repetitive "ver el código en el texto" (e.g. "usaba ver el código
+  en el texto en vez de ver el código en el texto"); paths written in
+  backticks get the code placeholder, not the link one. Pending owner input.
+
 ## Backlog (owner, 2026-10-02, later)
 
 - Read selected or copied text aloud (selection/clipboard), as an additional
