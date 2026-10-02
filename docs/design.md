@@ -1,12 +1,11 @@
 # agent-voice — design and handoff
 
 Local, privacy-first text-to-speech for coding agents. When an agent finishes
-a turn, `agent-voice` speaks (part of) its reply aloud using Kokoro, fully on
+a turn, `agent-voice` speaks its reply aloud using Kokoro, fully on
 the user's machine. One core CLI, thin adapters per agent.
 
-This document is the starting point for the first implementation session. It
-records what was researched (with sources), what was decided, and what is
-still open.
+It records what was researched (with sources), what was decided, and the spike
+results.
 
 ## Goals
 
@@ -27,18 +26,20 @@ still open.
    only pipe text into the CLI.
 3. Engine: Kokoro via `kokoro-onnx`, local.
 4. Architecture: core CLI + thin per-agent adapters (below).
-
-## Open decisions (ask the owner, one at a time)
-
-1. **What to read**: (a) only the opening of the reply — first paragraph, ~2–3
-   sentences (recommended: replies lead with the answer, no extra tokens);
-   (b) the full reply; (c) a purpose-written summary the agent appends to every
-   reply (more precise, costs tokens and changes every reply).
-2. Default voice: `ef_dora` (female) / `em_alex` / `em_santa` (male).
-3. Model variant: fp32 (325 MB), fp16 (163 MB) or int8 (114 MB) — decide after
-   measuring Spanish quality and latency.
-4. Process model: one process per call vs. a small resident daemon that keeps
-   the model loaded — decide after measuring load time.
+5. **What to read**: the full reply, never reasoning/thinking blocks (not only
+   the opening paragraph).
+6. **Voice**: default `em_alex` with `lang="es-419"`; `ef_dora` and `em_santa`
+   stay selectable, persistently (`agent-voice voice <name>`) and per call
+   (`--voice`).
+7. **Model variant**: fp32 (`kokoro-v1.0.onnx`) by default; int8 and fp16
+   selectable by command. See "Spike results" for the measurements.
+8. **Process model**: no resident daemon. Model load is ~0.6-1.1 s, so the
+   CLI splits the reply into sentences and pipelines playback (play sentence N
+   while synthesizing N+1). A new reply cuts the previous one.
+9. **Automatic speaking** once enabled: `agent-voice on|off|status`.
+10. **Repeat**: `agent-voice repeat` re-speaks the last reply by reading the
+    agent's own stored transcript (Claude Code first; Codex, Pi, OpenCode and
+    Gemini later). agent-voice itself never persists reply text.
 
 ## Engine (research, 2026-10-02)
 
@@ -51,13 +52,12 @@ still open.
   sample_rate)` (src/kokoro_onnx/__init__.py, examples/save.py).
 - Spanish voices: `ef_dora`, `em_alex`, `em_santa`
   (https://huggingface.co/hexgrad/Kokoro-82M/raw/main/VOICES.md).
-- `lang` is passed straight to espeak-ng via phonemizer. Spanish is most
-  likely `"es"` (also try `"es-419"` for Latin American accent). **Unverified —
-  test with a real sentence first.**
+- `lang` is passed straight to espeak-ng via phonemizer. Both `"es"` and
+  `"es-419"` work (see "Spike results").
 - **No system espeak-ng needed**: `espeakng-loader` bundles the library and
   data in the wheel (~9.9 MB for macOS arm64); the tokenizer only falls back to
   a system espeak if that fails (src/kokoro_onnx/tokenizer.py).
-- Latency: README only says "near real-time on macOS M1". **Measure.**
+- Latency: README only says "near real-time on macOS M1"; measured in "Spike results".
 
 Model files — release `model-files-v1.1` (pin this tag; `v1.0` has different
 fp16/int8 sizes):
@@ -108,21 +108,31 @@ never fail the agent's turn.
 ## Proposed architecture
 
 - **Core CLI `agent-voice`**: reads text on stdin; options `--voice`,
-  `--speed`, `--lang`; cleans the text; synthesizes with kokoro-onnx; plays it;
+  `--speed`, `--lang`; cleans the text; splits it into sentence chunks under
+  the phoneme limit; synthesizes with kokoro-onnx; plays chunks pipelined;
   cuts any previous utterance; never raises to the caller (errors go to stderr
   only, without reply text). Models in `~/.local/share/agent-voice/`, verified
-  by hash. On/off switch (e.g. `agent-voice off|on|status`).
-- **Optional daemon** (only if measurement demands it): keeps the model loaded,
-  listens on a Unix socket; the CLI becomes a thin client.
+  by hash. Persistent config: `agent-voice on|off|status`, `voice <name>`,
+  model variant.
+- **`agent-voice repeat`**: re-speaks the last reply by reading the agent's own
+  stored transcript (Claude Code first). agent-voice never persists reply text.
+- **No daemon** (decided, see "Decisions taken"): one process per call.
 - **Adapters** in `adapters/<agent>/`, each only extracting the reply text and
   piping it to the CLI, plus an `agent-voice install <agent> [--config-dir ...]`
   helper that registers the hook in the right config (supports several
   `CLAUDE_CONFIG_DIR`s).
-- **Text cleaning before speaking**: drop fenced code blocks and inline code,
-  URLs, file paths, long hashes, tables and separators, markdown markers
-  (`#`, `*`, `_`, `>`, bullets; `[txt](url)` → `txt`), emojis; cap length (the
-  model also errors past `MAX_PHONEME_LENGTH`); if the reply is mostly code,
-  say nothing (or a very short fixed phrase).
+- **Text cleaning before speaking**: the full reply is read as plain prose.
+  - Markdown markers are stripped (`#`, `*`, `_`, `>`, bullets); `[txt](url)`
+    becomes `txt`; emojis, separators and long hashes are dropped.
+  - Code, fenced or inline, is never spoken; it is replaced by the phrase
+    "ver el código en el texto".
+  - URLs and file paths are replaced by "ver el link en el texto".
+  - Plain-text tables are read like a list, row by row.
+  - Complex tables are replaced by "ver la tabla en el texto". Complex means
+    any cell containing code, a URL or a path, or more than ~4 columns or ~8
+    rows.
+  - Long text is split into sentence chunks (the model errors past
+    `MAX_PHONEME_LENGTH`).
 
 ## Privacy rules (non-negotiable)
 
@@ -134,13 +144,33 @@ never fail the agent's turn.
   `cris-m/claude_voice` (active `debug_hook.py` appends the full reply to
   `/tmp/claude_hook_debug.json`, never cleaned).
 
-## First session — suggested order
+## Spike results (2026-10-02, M1 Max)
 
-1. Ask open decision 1 (what to read).
-2. Spike: download the int8 + voices files (verify hashes), synthesize one
-   Spanish sentence with `lang="es"` and each voice; measure model load and
-   synthesis time on this Mac. Decide voice, variant and process model.
-3. Scaffold the package with `uv` (pyproject, src layout, tests with pytest),
-   TDD for the text-cleaning and hash-verification units.
-4. Claude Code adapter first (both `~/.claude` and `~/.claude-work`), then
-   Codex, OpenCode, Pi, Gemini.
+Observed unless marked inferred.
+
+- Spanish: both `lang="es"` and `lang="es-419"` work; `es-419` gives seseo
+  (Latin American accent).
+- espeak-ng long data path failure: the bundled espeak-ng fails (rc=1, no
+  Python traceback) when the `espeakng_loader` data path is long, with
+  `Error processing file '/Users/runner/work/espeakng-loader/.../phontab'`. A
+  ~190-char path failed; `"."` worked. Cause is likely a fixed-size buffer
+  (inferred, not confirmed in source).
+- Workaround: `chdir` into the `espeakng_loader` data directory, pass
+  `EspeakConfig(data_path=".")`, and monkeypatch phonemizer's `EspeakAPI`,
+  because it `.resolve()`s the path back to the long absolute form.
+- Variants (RTF = real-time factor, lower is faster):
+
+| Variant | RTF | Short sentence | RSS |
+|---|---|---|---|
+| int8 | 0.70 | 1.14 s | 716 MB |
+| fp16 | 0.43 | 0.48 s | 910 MB |
+| fp32 | 0.38 | 0.47 s | 910 MB |
+
+  fp16 prints a harmless onnxruntime `constant_folding` warning. fp32 is the
+  default: fastest, and int8 is slower here despite being smaller.
+- Model load: ~0.6-1.1 s (basis for the no-daemon decision).
+
+## Implementation plan
+
+See `odd/tasks/agent-voice-core.md` for the task list, status and acceptance
+criteria.
