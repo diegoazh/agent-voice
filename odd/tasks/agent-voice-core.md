@@ -71,7 +71,7 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
 | T6 | Pipelined playback with afplay, cut previous utterance, no text on disk | delegated | done `2cfd65e`, `21a95b8` |
 | T7 | CLI: stdin speak, on/off/status, voice/model persistent config, flags | delegated | done `a58304d`, `981c17b`, `16018da` |
 | T8 | Claude Code adapter + `agent-voice install claude` (~/.claude, ~/.claude-work); verify Stop-hook text excludes intermediate text | delegated | done `0508485`, `a0b5465` |
-| T9 | `agent-voice repeat` with Claude Code transcript reader | delegated | pending |
+| T9 | `agent-voice repeat` with Claude Code transcript reader | delegated | done `4f56390` |
 | T10 | Adapters + repeat readers for Codex, Pi, OpenCode, Gemini | later | pending |
 
 ### Acceptance criteria (summary)
@@ -183,6 +183,19 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
   files are regular files today, checked); partial multi-dir write on
   OSError; uninstall may drop a foreign empty Stop list; settings error
   without file location.
+- T9 `4f56390` feat(repeat): `last_reply` reads Claude Code's own JSONL
+  (`<cfg>/projects/<cwd with non-alnum -> '-'>/<session>.jsonl`; subagents
+  live in a separate `subagents/` dir; one content block per assistant
+  entry), newest session preferring the cwd project, backward 64 KB block
+  scan, final text-bearing non-sidechain assistant entry; never writes.
+  `agent-voice repeat` works regardless of on/off (hidden `speak --always`
+  for the detached child). 100%/100% claude.py/cli.py. Independent
+  verifier: PASS incl. real read (1344 chars, 2.3 ms, matches an
+  independent scan) and real audio while disabled. RDD: HIGH; owner
+  GRANTED; 4 lenses approved; acknowledged.
+  Follow-ups (WARNING): cli.py:161; backward reader quadratic on very long
+  lines (claude.py:50-56). Gap: repeat only searches $CLAUDE_CONFIG_DIR or
+  ~/.claude by default, not ~/.claude-work.
 - Owner request (2026-10-02): run one general review of the whole
   `feat/core-cli` branch (from 20c93bb) after T9.
 
@@ -193,4 +206,4 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
 
 ## Next step
 
-T9 repeat, then hardening of review follow-ups, then the general branch review.
+Hardening of review follow-ups, then the general branch review.
