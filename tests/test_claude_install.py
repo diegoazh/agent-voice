@@ -394,3 +394,23 @@ def test_uninstall_with_an_unreadable_backup_falls_back_to_removing_emptied_cont
     (tmp_path / "settings.json.agent-voice.bak").write_text("{broken")
     assert main(["uninstall", "claude", "--config-dir", str(tmp_path)]) == 0
     assert read(tmp_path) == {}
+
+
+# --- T15 G4: only our own command is ours ----------------------------------
+
+FOREIGN = [
+    "/opt/other/not-agent-voice hook claude",
+    "/opt/other/agent-voice-extra hook claude",
+    "/opt/other/agent-voice hook claude --extra",
+    "FOO=1 /opt/bin/agent-voice hook claude",
+    "/opt/other/agent-voice hook codex",
+]
+
+
+@pytest.mark.parametrize("command", FOREIGN)
+def test_foreign_hook_survives_install_and_uninstall(tmp_path, command):
+    (tmp_path / "settings.json").write_text(json.dumps({"hooks": {"Stop": [entry(command)]}}))
+    assert main(["install", "claude", "--config-dir", str(tmp_path)]) == 0
+    assert read(tmp_path)["hooks"]["Stop"] == [entry(command), entry()]
+    assert main(["uninstall", "claude", "--config-dir", str(tmp_path)]) == 0
+    assert read(tmp_path)["hooks"]["Stop"] == [entry(command)]

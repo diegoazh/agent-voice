@@ -170,13 +170,27 @@ def hook_command() -> str:
 
 
 def _is_ours(hook) -> bool:
-    """Recognises both quoted commands and older unquoted ones."""
+    """True only for `<path>/agent-voice hook claude`, nothing more and nothing less.
+
+    The executable's basename must be exactly `agent-voice` and the arguments exactly
+    `hook claude`; anything else (`not-agent-voice`, extra args, env prefixes) is foreign.
+    Quoted commands are parsed with shlex. An older unquoted absolute path that contains
+    spaces is still recognised.
+    """
     if not isinstance(hook, dict):
         return False
-    command = str(hook.get("command", ""))
-    if not command.endswith(HOOK_ARGS):
+    command = hook.get("command")
+    if not isinstance(command, str) or not command.endswith(HOOK_ARGS):
         return False
-    return command[: -len(HOOK_ARGS)].rstrip("'\"").endswith(HOOK_NAME)
+    prefix = command[: -len(HOOK_ARGS)]
+    try:
+        tokens = shlex.split(prefix)
+    except ValueError:
+        return False
+    if len(tokens) == 1:
+        return os.path.basename(tokens[0]) == HOOK_NAME
+    unquoted = not any(q in prefix for q in "'\"\\")
+    return unquoted and prefix.startswith("/") and os.path.basename(prefix) == HOOK_NAME
 
 
 class SettingsError(Exception):
