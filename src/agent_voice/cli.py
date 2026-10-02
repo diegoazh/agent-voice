@@ -26,6 +26,8 @@ def _build_parser():
     speak.add_argument("--lang")
     speak.add_argument("--model", choices=sorted(models.VARIANTS))
     speak.add_argument("--detach", action="store_true")
+    hook = sub.add_parser("hook", help="agent hook entry point (reads the agent's JSON on stdin)")
+    hook.add_argument("agent", choices=["claude"])
     return parser
 
 
@@ -181,7 +183,18 @@ def _cmd_speak(args) -> int:
         return 0
 
 
+def _cmd_hook(args) -> int:
+    """Never fails the agent: always exits 0 and prints nothing to stdout."""
+    from agent_voice.adapters import claude
+
+    try:
+        return claude.run_hook(sys.stdin.read())
+    except Exception:
+        return 0
+
+
 COMMANDS = {
+    "hook": _cmd_hook,
     "speak": _cmd_speak,
     "download": _cmd_download,
     "model": _cmd_model,
