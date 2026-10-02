@@ -65,8 +65,8 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
 |---|---|---|---|
 | T1 | Update `docs/design.md` with today's decisions and spike findings | delegated (docs) | done `1bcea8b` |
 | T2 | Package scaffold with uv (src layout, pytest, pytest-cov, CLI entry point) | delegated | done `eaeac8e` |
-| T3 | Text cleaning: markdown -> prose, placeholders, simple tables as lists, sentence chunking | delegated | pending |
-| T4 | Model store: paths, SHA256-pinned download, variant selection | delegated | pending |
+| T3 | Text cleaning: markdown -> prose, placeholders, simple tables as lists, sentence chunking | delegated | done `ef3b4a0`, `dc2df71` |
+| T4 | Model store: paths, SHA256-pinned download, variant selection | delegated | done `1ca6a6b` |
 | T5 | Synthesis engine with espeak short-path workaround | delegated | pending |
 | T6 | Pipelined playback with afplay, cut previous utterance, no text on disk | delegated | pending |
 | T7 | CLI: stdin speak, on/off/status, voice/model persistent config, flags | delegated | pending |
@@ -111,7 +111,25 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
   Open product question raised by the probe: inline code inside prose
   produces repetitive "ver el código en el texto" (e.g. "usaba ver el código
   en el texto en vez de ver el código en el texto"); paths written in
-  backticks get the code placeholder, not the link one. Pending owner input.
+  backticks get the code placeholder, not the link one. Resolved below.
+- Review of the feature document (da6e02a content): owner granted; native
+  review approved (1 lens, 2 informational suggestions), acknowledged,
+  authority burned.
+- T3b `dc2df71` feat(text): owner-agreed inline rule (short identifier ->
+  spoken word; path/URL in backticks -> link placeholder; real code ->
+  code placeholder once per sentence). RED 20 failed / GREEN 99 passed;
+  text.py 99%. Dots in identifiers are spoken "punto" (`cli.py` -> "cli
+  punto py"); a dropped second code span can leave a dangling connector
+  ("y después."). Independent verifier: PASS.
+- T4 `1ca6a6b` feat(models): pinned store, sidecar-verified resolve (no
+  hashing or network at speak time), verified atomic download, adopts
+  existing files. 26 tests, models.py 100%/100%. TDD deviation (honest):
+  the whole test file was written before the module, so RED was a single
+  collection ImportError, not one RED per behavior. Independent verifier:
+  PASS (black-box probe incl. stale/corrupt sidecar, checksum mismatch,
+  http refused). Real fp32+voices sidecars written to the models dir.
+- RDD: range da6e02a..1ca6a6b assessed medium (627 lines); owner declined
+  review for this candidate.
 
 ## Backlog (owner, 2026-10-02, later)
 
@@ -120,4 +138,4 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
 
 ## Next step
 
-T3 text cleaning.
+T5 synthesis engine (require one observed RED per behavior).
