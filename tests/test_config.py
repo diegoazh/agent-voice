@@ -1,0 +1,86 @@
+import json
+from pathlib import Path
+
+from agent_voice import config
+
+
+def test_path_prefers_agent_voice_home():
+    env = {"AGENT_VOICE_HOME": "/h", "XDG_CONFIG_HOME": "/x"}
+    assert config.config_path(env) == Path("/h/config.json")
+
+
+def test_path_falls_back_to_xdg_config_home():
+    assert config.config_path({"XDG_CONFIG_HOME": "/x"}) == Path("/x/agent-voice/config.json")
+
+
+def test_path_defaults_to_dot_config_in_home(monkeypatch):
+    monkeypatch.setattr(Path, "home", lambda: Path("/home/u"))
+    assert config.config_path({}) == Path("/home/u/.config/agent-voice/config.json")
+
+
+def test_load_without_file_returns_defaults(tmp_path):
+    assert config.load({"AGENT_VOICE_HOME": str(tmp_path)}) == {
+        "enabled": False,
+        "voice": "em_alex",
+        "lang": "es-419",
+        "model": "fp32",
+        "speed": 1.0,
+    }
+
+
+def test_save_then_load_roundtrip(tmp_path):
+    env = {"AGENT_VOICE_HOME": str(tmp_path)}
+    config.save({"voice": "ef_dora", "enabled": True}, env)
+    loaded = config.load(env)
+    assert loaded["voice"] == "ef_dora"
+    assert loaded["enabled"] is True
+    assert loaded["model"] == "fp32"
+
+
+def test_save_preserves_unknown_keys(tmp_path):
+    env = {"AGENT_VOICE_HOME": str(tmp_path)}
+    (tmp_path / "config.json").write_text(json.dumps({"future": [1, 2], "voice": "em_santa"}))
+    config.save({"enabled": True}, env)
+    data = json.loads((tmp_path / "config.json").read_text())
+    assert data == {"future": [1, 2], "voice": "em_santa", "enabled": True}
+    assert config.load(env)["future"] == [1, 2]
+
+
+def test_failed_write_keeps_old_file_and_leaves_no_temp(tmp_path, monkeypatch):
+    env = {"AGENT_VOICE_HOME": str(tmp_path)}
+    config.save({"voice": "em_santa"}, env)
+
+    def boom(src, dst):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(config.os, "replace", boom)
+    try:
+        config.save({"voice": "ef_dora"}, env)
+    except OSError:
+        pass
+    monkeypatch.undo()
+    assert config.load(env)["voice"] == "em_santa"
+    assert [p.name for p in tmp_path.iterdir()] == ["config.json"]
+
+
+def test_corrupt_file_gives_defaults_and_one_warning(tmp_path, capsys):
+    env = {"AGENT_VOICE_HOME": str(tmp_path)}
+    (tmp_path / "config.json").write_text("{not json")
+    assert config.load(env) == config.DEFAULTS
+    err = capsys.readouterr().err
+    assert err.count("agent-voice:") == 1
+    assert "config" in err
+
+
+def test_non_object_json_is_treated_as_corrupt(tmp_path, capsys):
+    env = {"AGENT_VOICE_HOME": str(tmp_path)}
+    (tmp_path / "config.json").write_text("[1, 2]")
+    assert config.load(env) == config.DEFAULTS
+    assert "agent-voice:" in capsys.readouterr().err
+
+
+def test_save_over_corrupt_file_recovers(tmp_path):
+    env = {"AGENT_VOICE_HOME": str(tmp_path)}
+    (tmp_path / "config.json").write_text("{not json")
+    config.save({"enabled": True}, env)
+    assert config.load(env)["enabled"] is True
