@@ -75,8 +75,7 @@ def _cmd_status(args) -> int:
     return 0
 
 
-# Spanish voices only; validated statically so no model load is needed.
-VOICES = ("ef_dora", "em_alex", "em_santa")
+VOICES = config.VOICES
 
 
 def _cmd_voice(args) -> int:

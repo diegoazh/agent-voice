@@ -1,10 +1,13 @@
 """Persistent settings (JSON). Never holds reply text."""
 
 import json
+import math
 import os
 import sys
 import tempfile
 from pathlib import Path
+
+from agent_voice import models
 
 DEFAULTS = {
     "enabled": False,
@@ -12,6 +15,23 @@ DEFAULTS = {
     "lang": "es-419",
     "model": "fp32",
     "speed": 1.0,
+}
+
+
+# Spanish voices only; validated statically so no model load is needed.
+VOICES = ("ef_dora", "em_alex", "em_santa")
+MAX_SPEED = 10.0
+
+_VALID = {
+    "voice": lambda v: v in VOICES,
+    "model": lambda v: isinstance(v, str) and v in models.VARIANTS,
+    "speed": lambda v: (
+        isinstance(v, (int, float))
+        and not isinstance(v, bool)
+        and math.isfinite(v)
+        and 0 < v <= MAX_SPEED
+    ),
+    "lang": lambda v: isinstance(v, str) and bool(v),
 }
 
 
@@ -38,7 +58,16 @@ def _read(env) -> dict:
 
 
 def load(env=None) -> dict:
-    return {**DEFAULTS, **_read(env)}
+    """Defaults overlaid with the file; invalid values fall back with one warning."""
+    data = _read(env)
+    bad = [k for k, ok in _VALID.items() if k in data and not ok(data[k])]
+    if bad:
+        print(
+            f"agent-voice: invalid config value for {', '.join(bad)}; using defaults",
+            file=sys.stderr,
+        )
+        data = {k: v for k, v in data.items() if k not in bad}
+    return {**DEFAULTS, **data}
 
 
 def save(updates: dict, env=None) -> None:

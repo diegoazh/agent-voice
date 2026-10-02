@@ -84,3 +84,54 @@ def test_save_over_corrupt_file_recovers(tmp_path):
     (tmp_path / "config.json").write_text("{not json")
     config.save({"enabled": True}, env)
     assert config.load(env)["enabled"] is True
+
+
+import pytest
+
+
+def _write(tmp_path, data):
+    (tmp_path / "config.json").write_text(json.dumps(data))
+    return {"AGENT_VOICE_HOME": str(tmp_path)}
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"voice": 3},
+        {"voice": "nope"},
+        {"model": ["fp32"]},
+        {"model": "fp64"},
+        {"speed": "fast"},
+        {"speed": True},
+        {"speed": 0},
+        {"speed": -1.5},
+        {"speed": float("nan")},
+        {"speed": 100},
+        {"lang": 5},
+        {"lang": ""},
+    ],
+)
+def test_invalid_value_falls_back_to_default_with_one_warning(tmp_path, capsys, bad):
+    env = _write(tmp_path, {"enabled": True, **bad})
+    loaded = config.load(env)
+    (key,) = bad
+    assert loaded[key] == config.DEFAULTS[key]
+    assert loaded["enabled"] is True
+    err = capsys.readouterr().err
+    assert err.count("\n") == 1 and key in err
+
+
+def test_valid_values_load_unchanged_without_warning(tmp_path, capsys):
+    env = _write(tmp_path, {"voice": "ef_dora", "model": "int8", "speed": 1, "lang": "es", "x": [1]})
+    assert config.load(env) == {
+        **config.DEFAULTS, "voice": "ef_dora", "model": "int8", "speed": 1, "lang": "es", "x": [1],
+    }
+    assert capsys.readouterr().err == ""
+
+
+def test_several_invalid_values_give_a_single_warning_naming_all(tmp_path, capsys):
+    env = _write(tmp_path, {"voice": 1, "speed": "x"})
+    loaded = config.load(env)
+    assert loaded["voice"] == config.DEFAULTS["voice"] and loaded["speed"] == 1.0
+    err = capsys.readouterr().err
+    assert err.count("\n") == 1 and "voice" in err and "speed" in err
