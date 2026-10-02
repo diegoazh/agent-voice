@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import urllib.error
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -145,6 +146,22 @@ def resolve(
     return paths[0], paths[1]
 
 
+FETCH_TIMEOUT_S = 30
+
+
+class _HttpsOnlyRedirect(urllib.request.HTTPRedirectHandler):
+    """Follow redirects only to https URLs (a downgrade to http is refused)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not newurl.lower().startswith("https://"):
+            raise urllib.error.HTTPError(req.full_url, code, "redirect to non-HTTPS URL refused", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _open(url: str, timeout: float):
+    return urllib.request.build_opener(_HttpsOnlyRedirect()).open(url, timeout=timeout)
+
+
 def default_fetch(
     url: str,
     dest: str | os.PathLike,
@@ -156,12 +173,16 @@ def default_fetch(
     if not url.startswith("https://"):
         raise ValueError(f"refusing non-HTTPS URL: {url}")
     name = url.rsplit("/", 1)[-1]
-    with urllib.request.urlopen(url) as resp, open(dest, "wb") as out:
+    pin = PINNED.get(name)
+    limit = None if pin is None else pin.size
+    with _open(url, FETCH_TIMEOUT_S) as resp, open(dest, "wb") as out:
         total = int(resp.headers.get("Content-Length") or 0)
         done = 0
         while chunk := resp.read(chunk_size):
             out.write(chunk)
             done += len(chunk)
+            if limit is not None and done > limit:
+                raise ValueError(f"{name} is larger than its pinned size; download aborted")
             if progress_cb:
                 progress_cb(name, done, total)
 

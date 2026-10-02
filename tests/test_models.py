@@ -276,7 +276,7 @@ def test_default_fetch_streams(tmp_path, monkeypatch):
         def __exit__(self, *a):
             self.close()
 
-    monkeypatch.setattr(models.urllib.request, "urlopen", lambda url: Resp(b"abcdef"))
+    monkeypatch.setattr(models, "_open", lambda url, timeout: Resp(b"abcdef"))
     seen = []
     dest = tmp_path / "x.part"
     models.default_fetch(
@@ -298,7 +298,61 @@ def test_default_fetch_without_content_length(tmp_path, monkeypatch):
         def __exit__(self, *a):
             self.close()
 
-    monkeypatch.setattr(models.urllib.request, "urlopen", lambda url: Resp(b"ab"))
+    monkeypatch.setattr(models, "_open", lambda url, timeout: Resp(b"ab"))
     dest = tmp_path / "y.part"
     models.default_fetch("https://example.com/y", dest)
     assert dest.read_bytes() == b"ab"
+
+
+def test_default_fetch_uses_a_timeout(tmp_path, monkeypatch):
+    import io
+
+    seen = {}
+
+    class Resp(io.BytesIO):
+        headers = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            self.close()
+
+    def fake_open(url, timeout):
+        seen["timeout"] = timeout
+        return Resp(b"ab")
+
+    monkeypatch.setattr(models, "_open", fake_open)
+    models.default_fetch("https://example.com/y", tmp_path / "y.part")
+    assert 0 < seen["timeout"] <= 120
+
+
+def test_default_fetch_stops_at_the_pinned_size(tmp_path, monkeypatch):
+    import io
+
+    class Resp(io.BytesIO):
+        headers = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            self.close()
+
+    pin = models.PINNED[models.VOICES_FILE]
+    monkeypatch.setattr(models, "_open", lambda url, timeout: Resp(b"x" * (pin.size + 10)))
+    monkeypatch.setattr(models, "PINNED", {**models.PINNED, models.VOICES_FILE: models.PinnedFile(pin.name, pin.sha256, 8)})
+    dest = tmp_path / "v.part"
+    with pytest.raises(ValueError, match="larger"):
+        models.default_fetch(f"https://example.com/{models.VOICES_FILE}", dest, chunk_size=4)
+    assert dest.stat().st_size <= 8 + 4
+
+
+def test_redirect_to_a_non_https_url_is_refused():
+    import urllib.request
+
+    handler = models._HttpsOnlyRedirect()
+    req = urllib.request.Request("https://example.com/a")
+    with pytest.raises(urllib.error.HTTPError, match="non-HTTPS"):
+        handler.redirect_request(req, None, 302, "Found", {}, "http://evil.example/a")
+    assert handler.redirect_request(req, None, 302, "Found", {}, "https://cdn.example/a") is not None

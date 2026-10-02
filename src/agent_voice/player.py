@@ -3,6 +3,7 @@
 import fcntl
 import os
 import queue
+import re
 import shutil
 import signal
 import subprocess
@@ -65,7 +66,7 @@ def _read_pid(directory, pid_file=PID_FILE):
 
 def _is_previous_speaker(pid, stored_start, start_time):
     """True only for a live process whose start time matches the recorded one."""
-    if pid is None or pid == os.getpid() or stored_start is None or not _alive(pid):
+    if pid is None or pid <= 1 or pid == os.getpid() or stored_start is None or not _alive(pid):
         return False
     current = start_time(pid)
     return current is not None and current == stored_start
@@ -80,6 +81,8 @@ def _terminate_previous(directory, start_time, pid_file=PID_FILE):
         os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
         return True
+    except PermissionError:
+        return False  # not ours to signal
     deadline = time.monotonic() + EXIT_WAIT
     while _alive(pid) and time.monotonic() < deadline:
         time.sleep(0.01)
@@ -119,6 +122,38 @@ def _release(directory, pid_file=PID_FILE):
             (Path(directory) / pid_file).unlink()
         except FileNotFoundError:
             pass
+
+
+TMP_PREFIX = "agent-voice-"
+STALE_AFTER_S = 600
+_TMP_NAME = re.compile(rf"{re.escape(TMP_PREFIX)}(\d+)-")
+
+
+def _sweep_stale(workdir=None, *, now=None):
+    """Remove leftover temp dirs of agent-voice processes that no longer exist.
+
+    Conservative: only real directories (never symlinks) owned by this user, named
+    `agent-voice-<pid>-*`, whose pid is not alive and whose last change is older than
+    STALE_AFTER_S. Best effort: any error is ignored.
+    """
+    root = tempfile.gettempdir() if workdir is None else str(workdir)
+    now = time.time() if now is None else now
+    try:
+        with os.scandir(root) as entries:
+            found = list(entries)
+        for entry in found:
+            match = _TMP_NAME.match(entry.name)
+            if not match or not entry.is_dir(follow_symlinks=False):  # symlinks never count
+                continue
+            info = entry.stat(follow_symlinks=False)
+            pid = int(match.group(1))
+            if info.st_uid != os.getuid() or now - info.st_mtime < STALE_AFTER_S:
+                continue
+            if pid == os.getpid() or _alive(pid):
+                continue
+            shutil.rmtree(entry.path, ignore_errors=True)
+    except OSError:
+        pass
 
 
 def claim(run_dir=None, start_time=None):
@@ -197,7 +232,8 @@ def speak(chunks, synth, *, play=None, workdir=None, run_dir=None, handle_signal
         if in_main:
             previous_handler = signal.signal(signal.SIGTERM, on_sigterm)
         _claim(run_dir, start_time)
-        tmp = tempfile.mkdtemp(prefix="agent-voice-", dir=workdir)
+        _sweep_stale(workdir)
+        tmp = tempfile.mkdtemp(prefix=f"{TMP_PREFIX}{os.getpid()}-", dir=workdir)
         tmp = os.path.abspath(tmp)
         producer = threading.Thread(target=produce, daemon=True)
         producer.start()
@@ -205,7 +241,8 @@ def speak(chunks, synth, *, play=None, workdir=None, run_dir=None, handle_signal
             index, wav = item
             path = os.path.join(tmp, f"{index}.wav")
             try:
-                with open(path, "wb") as f:
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, "wb") as f:
                     f.write(wav)
                 play(path)
             finally:

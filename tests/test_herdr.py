@@ -100,3 +100,27 @@ def test_claude_session_id_only_for_a_claude_id_session():
         {"agent": "claude", "agent_session": "x"},
     ):
         assert herdr.claude_session_id(bad) is None
+
+
+# --- T15 G6: strict ids -----------------------------------------------------
+
+
+def test_session_id_with_a_trailing_newline_is_rejected():
+    p = {"agent": "claude", "agent_session": {"kind": "id", "value": SID + "\n"}}
+    assert herdr.claude_session_id(p) is None
+
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize("bad", ["--help", "-h", "w1 p1", "a;b", "w1:p1\n", "w1/p1", "../x"])
+def test_invalid_pane_id_is_never_passed_to_herdr(bad):
+    run = FakeRun({"herdr": get_json(pane())})
+    assert herdr.current_pane({"HERDR_PANE_ID": bad}, run=run) is None
+    assert run.calls == []
+
+
+def test_real_pane_id_shape_is_passed_through():
+    run = FakeRun({"herdr": get_json(pane("w1Q:p1"))})
+    assert herdr.current_pane({"HERDR_PANE_ID": "w1Q:p1"}, run=run)["pane_id"] == "w1Q:p1"
+    assert run.calls == [["herdr", "pane", "get", "w1Q:p1"]]

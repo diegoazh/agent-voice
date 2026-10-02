@@ -10,7 +10,13 @@ import subprocess
 
 # skhd runs commands with a minimal PATH that usually lacks Homebrew's bin directory.
 HOMEBREW_BIN = "/opt/homebrew/bin/herdr"
-_SESSION_ID = re.compile(r"^[A-Za-z0-9_-]+$")
+_SESSION_ID = re.compile(r"[A-Za-z0-9_-]+")
+# Pane ids look like "w1Q:p1". Never start with "-": the id is passed as an argv entry.
+_PANE_ID = re.compile(r"[A-Za-z0-9_:][A-Za-z0-9_:-]*")
+
+
+def valid_pane_id(value) -> bool:
+    return isinstance(value, str) and _PANE_ID.fullmatch(value) is not None
 
 
 def _run(argv, timeout=2.0):
@@ -29,6 +35,8 @@ def current_pane(env, run=None):
     """
     run = _run if run is None else run
     pane_id = env.get("HERDR_PANE_ID")
+    if pane_id and not valid_pane_id(pane_id):
+        return None
     args = ["pane", "get", pane_id] if pane_id else ["pane", "list"]
     for binary in _candidates(env):
         try:
@@ -60,6 +68,6 @@ def claude_session_id(pane):
     if pane.get("agent") != "claude" or not isinstance(session, dict):
         return None
     value = session.get("value")
-    if session.get("kind") != "id" or not isinstance(value, str) or not _SESSION_ID.match(value):
+    if session.get("kind") != "id" or not isinstance(value, str) or not _SESSION_ID.fullmatch(value):
         return None
     return value

@@ -3,7 +3,10 @@
 import json
 import re
 import subprocess
+import time
 from typing import Protocol
+
+from agent_voice import herdr
 
 GHOSTTY_BUNDLE = "com.mitchellh.ghostty"
 _BUNDLE_RE = re.compile(r'bundleid"?\s*=\s*"([^"]*)"', re.IGNORECASE)
@@ -11,6 +14,24 @@ _BUNDLE_RE = re.compile(r'bundleid"?\s*=\s*"([^"]*)"', re.IGNORECASE)
 
 def _run(argv, timeout=2.0):
     return subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+
+
+def bounded_run(budget, *, run=None, clock=time.monotonic):
+    """A runner whose calls share one total time budget (seconds), starting now.
+
+    Each call's timeout is capped by what is left; once the budget is spent a call raises
+    subprocess.TimeoutExpired without starting a process (callers read that as "unknown").
+    """
+    run = _run if run is None else run
+    deadline = clock() + budget
+
+    def bounded(argv, timeout=2.0):
+        remaining = deadline - clock()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(argv, budget)
+        return run(argv, timeout=min(timeout, remaining))
+
+    return bounded
 
 
 class PaneGoneError(Exception):
@@ -100,6 +121,6 @@ def detect_from_env(env, run=None):
     if env.get("TERM_PROGRAM") != "ghostty" or not env.get("HERDR_ENV"):
         return None
     pane_id = env.get("HERDR_PANE_ID")
-    if not pane_id:
+    if not pane_id or not herdr.valid_pane_id(pane_id):
         return None
     return HerdrGhosttyDetector(pane_id, run=run, herdr_bin=env.get("HERDR_BIN_PATH") or "herdr")

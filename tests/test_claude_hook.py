@@ -214,3 +214,19 @@ def test_hook_survives_a_failing_waiter_spawn(monkeypatch, gated, capsys):
     run_gated(monkeypatch, gated, False)
     out = capsys.readouterr()
     assert out.out == "" and "SECRETMARKER" not in out.err
+
+
+def test_hook_focus_check_runs_under_a_total_half_second_budget(home, detached, monkeypatch):
+    captured = {}
+
+    def detect(env, **kw):
+        captured["run"] = kw.get("run")
+        return None
+
+    monkeypatch.setattr("agent_voice.focus.detect_from_env", detect)
+    seen = []
+    monkeypatch.setattr("agent_voice.focus._run", lambda argv, timeout=2.0: seen.append(timeout))
+    feed(monkeypatch, {"last_assistant_message": "Hola."})
+    assert main(["hook", "claude"]) == 0
+    captured["run"](["lsappinfo", "front"])
+    assert seen and seen[0] <= 0.5

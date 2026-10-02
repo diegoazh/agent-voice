@@ -129,6 +129,9 @@ def _session_focused(detector):
         return None
 
 
+HOOK_FOCUS_BUDGET_S = 0.5
+
+
 def run_hook(raw: str) -> int:
     """Speak the reply now, or hold it in memory until its session has focus.
 
@@ -147,7 +150,9 @@ def run_hook(raw: str) -> int:
     if not isinstance(message, str):
         return 0
     opts = argparse.Namespace(voice=None, speed=None, lang=None, model=None)
-    detector = focus.detect_from_env(os.environ)
+    # The hook blocks the agent: the focus check gets one small total budget; anything slower
+    # is "unknown", which speaks now (a slow herdr/lsappinfo must never stall Claude Code).
+    detector = focus.detect_from_env(os.environ, run=focus.bounded_run(HOOK_FOCUS_BUDGET_S))
     if detector is None:
         return cli._detach(opts, message)
     if _session_focused(detector) is False:
@@ -165,8 +170,10 @@ def default_config_dir() -> Path:
 
 
 def hook_command() -> str:
-    exe = shutil.which(HOOK_NAME) or HOOK_NAME
-    return shlex.quote(exe) + HOOK_ARGS
+    found = shutil.which(HOOK_NAME)
+    if not found:
+        raise SettingsError(f"{HOOK_NAME} executable not found on PATH; install it first")
+    return shlex.quote(os.path.abspath(found)) + HOOK_ARGS
 
 
 def _is_ours(hook) -> bool:

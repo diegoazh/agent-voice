@@ -147,10 +147,20 @@ def test_default_dir_falls_back_to_home_dot_claude(tmp_path, monkeypatch):
     assert read(tmp_path / ".claude") == {"hooks": {"Stop": [entry()]}}
 
 
-def test_command_falls_back_to_bare_name_when_not_on_path(tmp_path, monkeypatch):
+def test_install_refuses_when_agent_voice_is_not_on_path(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("agent_voice.adapters.claude.shutil.which", lambda name: None)
-    main(["install", "claude", "--config-dir", str(tmp_path)])
-    assert read(tmp_path)["hooks"]["Stop"] == [entry("agent-voice hook claude")]
+    assert main(["install", "claude", "--config-dir", str(tmp_path)]) == 1
+    assert "not found on PATH" in capsys.readouterr().err
+    assert not (tmp_path / "settings.json").exists()
+
+
+def test_hook_command_is_made_absolute(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("agent_voice.adapters.claude.shutil.which", lambda name: "bin/agent-voice")
+    assert main(["install", "claude", "--config-dir", str(tmp_path / "cfg")]) == 0
+    assert read(tmp_path / "cfg")["hooks"]["Stop"] == [
+        entry(f"{os.path.realpath(tmp_path)}/bin/agent-voice hook claude")
+    ]
 
 
 def test_uninstall_refuses_invalid_json(tmp_path, capsys):

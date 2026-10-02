@@ -191,3 +191,28 @@ def test_check_pane_raises_when_the_pane_is_gone_and_is_quiet_when_unknown():
     with pytest.raises(focus.PaneGoneError):
         focus.HerdrGhosttyDetector("w1:p1", run=Fake(herdr=(1, err))).check_pane()
     focus.HerdrGhosttyDetector("w1:p1", run=Fake(herdr=(1, ""))).check_pane()
+
+
+# --- T15 G6: strict pane id, bounded hook runner ----------------------------
+
+
+@pytest.mark.parametrize("bad", ["--help", "w1 p1", "a;b", "w1:p1\n"])
+def test_detect_from_env_none_for_an_invalid_pane_id(bad):
+    assert focus.detect_from_env({**ENV, "HERDR_PANE_ID": bad}) is None
+
+
+def test_bounded_run_caps_every_call_by_the_remaining_budget():
+    now = [0.0]
+    seen = []
+
+    def inner(argv, timeout=2.0):
+        seen.append(timeout)
+        now[0] += 0.2
+        return "ok"
+
+    run = focus.bounded_run(0.5, run=inner, clock=lambda: now[0])
+    assert run(["a"]) == "ok" and run(["b"], timeout=0.1) == "ok" and run(["c"]) == "ok"
+    assert seen == [pytest.approx(0.5), pytest.approx(0.1), pytest.approx(0.1)]
+    with pytest.raises(subprocess.TimeoutExpired):
+        run(["d"])  # budget spent: no further process is started
+    assert len(seen) == 3

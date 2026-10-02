@@ -448,3 +448,78 @@ def test_paths_are_absolute_even_with_a_relative_workdir(run_dir, tmp_path, monk
     rec = Recorder()  # asserts os.path.isabs(path)
     player.speak(["one"], fake_synth, play=rec, workdir="rel", run_dir=run_dir, handle_signals=False)
     assert rec.played == [b"WAV:one"]
+
+
+# --- T15 G6/G7 ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize("pid_text", ["0", "1", "-1"])
+def test_pid_file_with_a_reserved_pid_never_signals_anything(run_dir, monkeypatch, pid_text):
+    run_dir.mkdir(mode=0o700)
+    _pid_file(run_dir).write_text(f"{pid_text}\nsome start")
+    sent = []
+    monkeypatch.setattr(player.os, "kill", lambda pid, sig: sent.append((pid, sig)))
+    assert player.stop(run_dir, start_time=lambda pid: "some start") is False
+    assert sent == []
+
+
+def test_stop_survives_a_previous_speaker_we_may_not_signal(run_dir, monkeypatch):
+    run_dir.mkdir(mode=0o700)
+    _pid_file(run_dir).write_text("4242\nsome start")
+
+    def kill(pid, sig):
+        if sig != 0:
+            raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(player.os, "kill", kill)
+    assert player.stop(run_dir, start_time=lambda pid: "some start") is False
+
+
+def test_wav_files_are_private(run_dir, tmp_path):
+    modes = []
+    player.speak(
+        ["one"], fake_synth, play=lambda p: modes.append(stat.S_IMODE(os.stat(p).st_mode)),
+        workdir=tmp_path, run_dir=run_dir, handle_signals=False,
+    )
+    assert modes == [0o600]
+
+
+def _stale_dir(root, name, age_s, pid=None):
+    d = root / name
+    d.mkdir()
+    (d / "0.wav").write_bytes(b"WAV")
+    t = os.stat(d).st_mtime - age_s
+    os.utime(d, (t, t))
+    return d
+
+
+def _dead_pid():
+    dead = subprocess.Popen([sys.executable, "-c", "pass"])
+    dead.wait()
+    return dead.pid
+
+
+def test_start_sweeps_only_stale_leftovers_of_dead_agent_voice_processes(run_dir, tmp_path, sleeper):
+    dead = _dead_pid()
+    stale = _stale_dir(tmp_path, f"agent-voice-{dead}-abc", 3600)
+    young = _stale_dir(tmp_path, f"agent-voice-{dead}-new", 5)
+    alive = _stale_dir(tmp_path, f"agent-voice-{sleeper.pid}-abc", 3600)
+    foreign = _stale_dir(tmp_path, f"other-{dead}-abc", 3600)
+    no_pid = _stale_dir(tmp_path, "agent-voice-old", 3600)
+    target = tmp_path / "precious"
+    target.mkdir()
+    (tmp_path / f"agent-voice-{dead}-link").symlink_to(target)
+    (tmp_path / f"agent-voice-{dead}-file").write_text("x")
+    player.speak(["one"], fake_synth, play=Recorder(), workdir=tmp_path, run_dir=run_dir,
+                 handle_signals=False)
+    assert not stale.exists()
+    assert young.exists() and alive.exists() and foreign.exists() and no_pid.exists()
+    assert target.exists() and (tmp_path / f"agent-voice-{dead}-link").is_symlink()
+    assert (tmp_path / f"agent-voice-{dead}-file").exists()
+
+
+def test_a_failing_sweep_never_breaks_speaking(run_dir, tmp_path, monkeypatch):
+    monkeypatch.setattr(player.os, "scandir", lambda p: (_ for _ in ()).throw(OSError("denied")))
+    rec = Recorder()
+    player.speak(["one"], fake_synth, play=rec, workdir=tmp_path, run_dir=run_dir, handle_signals=False)
+    assert rec.played == [b"WAV:one"]
