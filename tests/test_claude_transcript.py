@@ -297,3 +297,39 @@ def test_very_long_line_is_read_in_linear_time_with_linear_block_reads(tmp_path,
     assert claude.last_reply([tmp_path]) == "the real reply"
     assert time.monotonic() - start < 3
     assert len(reads) <= size // 32 + 2
+
+
+# --- explicit session / strict project lookups (focused herdr pane) --------
+
+
+def test_session_reply_opens_exactly_that_session_across_config_dirs(tmp_path):
+    a, b = tmp_path / "a", tmp_path / "b"
+    write_session(a, "-p1", "other", [entry("assistant", text("newest other"))], mtime=3000)
+    write_session(b, "-p2", "wanted", [entry("assistant", text("the wanted one"))], mtime=1000)
+    write_session(a, "-p1", "wanted-2", [entry("assistant", text("near name"))], mtime=2000)
+    assert claude.session_reply([a, b], "wanted") == "the wanted one"
+
+
+def test_session_reply_unknown_session_is_none_even_if_others_exist(tmp_path):
+    write_session(tmp_path, "-p", "s1", [entry("assistant", text("hi"))])
+    assert claude.session_reply([tmp_path], "missing") is None
+
+
+def test_session_reply_does_not_glob_or_traverse(tmp_path):
+    write_session(tmp_path, "-p", "s1", [entry("assistant", text("hi"))])
+    assert claude.session_reply([tmp_path], "*") is None
+    assert claude.session_reply([tmp_path], "../projects/-p/s1") is None
+
+
+def test_session_reply_same_id_in_two_places_uses_the_newest(tmp_path):
+    write_session(tmp_path, "-old", "sid", [entry("assistant", text("old"))], mtime=1000)
+    write_session(tmp_path, "-new", "sid", [entry("assistant", text("new"))], mtime=2000)
+    assert claude.session_reply([tmp_path], "sid") == "new"
+
+
+def test_project_reply_reads_only_that_projects_folder(tmp_path):
+    write_session(tmp_path, claude.encode_project_dir("/w/app"), "s1",
+                  [entry("assistant", text("in project"))], mtime=1000)
+    write_session(tmp_path, "-elsewhere", "s2", [entry("assistant", text("newer"))], mtime=2000)
+    assert claude.project_reply([tmp_path], "/w/app") == "in project"
+    assert claude.project_reply([tmp_path], "/w/none") is None

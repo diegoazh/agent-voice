@@ -736,3 +736,134 @@ def test_executable_is_the_running_agent_voice_absolute_path(monkeypatch):
     monkeypatch.setattr(cli.sys, "argv", ["/x/y/__main__.py"])
     monkeypatch.setattr(cli.shutil, "which", lambda name: "/found/agent-voice")
     assert cli._executable() == "/found/agent-voice"
+
+
+# --- repeat follows the focused herdr session --------------------------------
+
+SID = "86c4cf97-e5ba-4c56-b68f-24f657c78e54"
+
+
+def _session(cfg_dir, project, name, reply, mtime):
+    import json
+
+    folder = Path(cfg_dir) / "projects" / project
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{name}.jsonl"
+    line = {"type": "assistant", "message": {"role": "assistant",
+                                             "content": [{"type": "text", "text": reply}]}}
+    path.write_text(json.dumps(line) + "\n")
+    os.utime(path, (mtime, mtime))
+
+
+def _herdr_pane(monkeypatch, pane):
+    monkeypatch.setattr("agent_voice.herdr.current_pane", lambda env: pane)
+
+
+def _claude_pane(**extra):
+    return {"pane_id": "w1:p1", "focused": True, "agent": "claude", "cwd": "/w/app",
+            "agent_session": {"agent": "claude", "kind": "id", "value": SID}, **extra}
+
+
+def _detached_text(monkeypatch):
+    FakePopen.instances = []
+    monkeypatch.setattr("agent_voice.cli.subprocess.Popen", FakePopen)
+
+    def got():
+        (child,) = FakePopen.instances
+        return child.stdin.data.decode()
+
+    return got
+
+
+def test_repeat_follows_the_focused_panes_session_across_config_dirs(home, spy, monkeypatch, tmp_path):
+    a, b = tmp_path / "a", tmp_path / "b"
+    _session(a, "-w-app", "newest-here", "WRONG newest in cwd project", 3000)
+    _session(b, "-other", SID, "right: the focused session", 1000)
+    _herdr_pane(monkeypatch, _claude_pane())
+    got = _detached_text(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    assert main(["repeat", "--detach", "--config-dir", str(a), "--config-dir", str(b)]) == 0
+    assert got() == "right: the focused session"
+
+
+def test_repeat_falls_back_to_the_panes_cwd_project_without_a_session(home, spy, monkeypatch, tmp_path):
+    from agent_voice.adapters import claude
+
+    _session(tmp_path, claude.encode_project_dir("/w/app"), "s1", "pane cwd project", 1000)
+    _session(tmp_path, claude.encode_project_dir(os.getcwd()), "s2", "WRONG process cwd", 2000)
+    _session(tmp_path, "-zzz", "s3", "WRONG newest overall", 3000)
+    pane = {"pane_id": "w1:p1", "focused": True, "cwd": "/w/app"}
+    _herdr_pane(monkeypatch, pane)
+    got = _detached_text(monkeypatch)
+    assert main(["repeat", "--detach", "--config-dir", str(tmp_path)]) == 0
+    assert got() == "pane cwd project"
+
+
+def test_repeat_session_file_missing_then_uses_the_panes_cwd_project(home, spy, monkeypatch, tmp_path):
+    from agent_voice.adapters import claude
+
+    _session(tmp_path, claude.encode_project_dir("/w/app"), "s1", "pane cwd project", 1000)
+    _herdr_pane(monkeypatch, _claude_pane())
+    got = _detached_text(monkeypatch)
+    assert main(["repeat", "--detach", "--config-dir", str(tmp_path)]) == 0
+    assert got() == "pane cwd project"
+
+
+def test_repeat_pane_without_any_transcript_falls_back_to_current_behavior(home, spy, monkeypatch, tmp_path):
+    _session(tmp_path, "-zzz", "s3", "newest overall", 3000)
+    _herdr_pane(monkeypatch, _claude_pane())
+    got = _detached_text(monkeypatch)
+    assert main(["repeat", "--detach", "--config-dir", str(tmp_path)]) == 0
+    assert got() == "newest overall"
+
+
+@pytest.mark.parametrize("failure", ["missing", "raises", "no-pane"])
+def test_repeat_without_a_usable_herdr_keeps_the_current_behavior(home, spy, monkeypatch, tmp_path, failure):
+    from agent_voice.adapters import claude
+
+    _session(tmp_path, claude.encode_project_dir(os.getcwd()), "s1", "process cwd project", 1000)
+    _session(tmp_path, "-zzz", "s2", "newest overall", 3000)
+    if failure == "raises":
+        def boom(env):
+            raise RuntimeError("herdr exploded")
+
+        monkeypatch.setattr("agent_voice.herdr.current_pane", boom)
+    elif failure == "no-pane":
+        _herdr_pane(monkeypatch, None)
+    got = _detached_text(monkeypatch)
+    assert main(["repeat", "--detach", "--config-dir", str(tmp_path)]) == 0
+    assert got() == "process cwd project"
+
+
+def test_repeat_inside_a_pane_uses_that_panes_session(home, spy, monkeypatch, tmp_path):
+    import json
+    from types import SimpleNamespace
+
+    _session(tmp_path, "-p", SID, "pane session reply", 1000)
+    _session(tmp_path, "-q", "other", "WRONG newest", 3000)
+    calls = []
+
+    def fake_run(argv, timeout=2.0):
+        calls.append(argv)
+        out = {"result": {"pane": _claude_pane(focused=False)}}
+        return SimpleNamespace(stdout=json.dumps(out), returncode=0)
+
+    monkeypatch.setattr("agent_voice.herdr._run", fake_run)
+    monkeypatch.setenv("HERDR_PANE_ID", "w9:p2")
+    got = _detached_text(monkeypatch)
+    assert main(["repeat", "--detach", "--config-dir", str(tmp_path)]) == 0
+    assert calls == [["herdr", "pane", "get", "w9:p2"]]
+    assert got() == "pane session reply"
+
+
+def test_repeat_detach_returns_without_loading_the_model(home, spy, monkeypatch, tmp_path):
+    import agent_voice
+
+    _session(tmp_path, "-p", SID, "Hola.", 1000)
+    _herdr_pane(monkeypatch, _claude_pane())
+    got = _detached_text(monkeypatch)
+    monkeypatch.delattr(agent_voice, "engine", raising=False)
+    monkeypatch.setitem(sys.modules, "agent_voice.engine", None)  # importing it would raise
+    assert main(["repeat", "--detach", "--config-dir", str(tmp_path)]) == 0
+    assert got() == "Hola."
+    assert spy.resolved == [] and spy.speaks == []

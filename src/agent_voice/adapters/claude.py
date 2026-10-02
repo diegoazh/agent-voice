@@ -28,6 +28,16 @@ def _newest_session(config_dirs, cwd=None):
     return None
 
 
+def _newest(files):
+    return max(files, key=lambda f: f.stat().st_mtime, default=None)
+
+
+def _session_file(config_dirs, session_id):
+    """The transcript of exactly this session id (no globbing, no traversal), or None."""
+    pattern = f"projects/*/{glob.escape(session_id)}.jsonl"
+    return _newest(f for d in config_dirs for f in Path(d).glob(pattern))
+
+
 def _reply_text(entry):
     message = entry.get("message")
     content = message.get("content") if isinstance(message, dict) else None
@@ -67,18 +77,8 @@ def _reverse_lines(path):
         yield b"".join(reversed(pending))
 
 
-def last_reply(config_dirs, cwd=None):
-    """Final assistant text of the newest Claude Code session, or None.
-
-    Read-only. Rule: scanning the session from the end, the first non-sidechain
-    assistant entry that has at least one `text` block; its `text` blocks are
-    joined with newlines (`thinking` and `tool_use` blocks are skipped, and
-    earlier assistant entries are ignored), matching Stop's
-    `last_assistant_message`. Malformed lines are skipped.
-    """
-    session = _newest_session(config_dirs, cwd)
-    if session is None:
-        return None
+def _reply_of(session):
+    """Final assistant text of one transcript file, or None."""
     for line in _reverse_lines(session):
         try:
             entry = json.loads(line)
@@ -93,6 +93,32 @@ def last_reply(config_dirs, cwd=None):
             if reply:
                 return reply
     return None
+
+
+def last_reply(config_dirs, cwd=None):
+    """Final assistant text of the newest Claude Code session, or None.
+
+    Read-only. Rule: scanning the session from the end, the first non-sidechain
+    assistant entry that has at least one `text` block; its `text` blocks are
+    joined with newlines (`thinking` and `tool_use` blocks are skipped, and
+    earlier assistant entries are ignored), matching Stop's
+    `last_assistant_message`. Malformed lines are skipped.
+    """
+    session = _newest_session(config_dirs, cwd)
+    return None if session is None else _reply_of(session)
+
+
+def session_reply(config_dirs, session_id):
+    """Final assistant text of exactly this session id (any project folder), or None."""
+    session = _session_file(config_dirs, session_id)
+    return None if session is None else _reply_of(session)
+
+
+def project_reply(config_dirs, cwd):
+    """Final assistant text of the newest session in `cwd`'s project folder only, or None."""
+    pattern = f"projects/{glob.escape(encode_project_dir(cwd))}/*.jsonl"
+    session = _newest(f for d in config_dirs for f in Path(d).glob(pattern))
+    return None if session is None else _reply_of(session)
 
 
 def _session_focused(detector):

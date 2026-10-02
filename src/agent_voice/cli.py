@@ -5,7 +5,7 @@ import shutil
 import subprocess
 import sys
 
-from agent_voice import __version__, config, focus, models, player, text, waiter
+from agent_voice import __version__, config, focus, herdr, models, player, text, waiter
 
 
 def _build_parser():
@@ -257,6 +257,35 @@ def _cmd_speak(args) -> int:
         return 0
 
 
+def _herdr_pane():
+    """The herdr pane the user means (HERDR_PANE_ID, else the focused one); None if unknown."""
+    try:
+        return herdr.current_pane(os.environ)
+    except Exception:
+        return None
+
+
+def resolve_reply(dirs):
+    """(strategy, reply) for `repeat`; reply is None when nothing was found.
+
+    Strategies, in order: "session-id" (the herdr pane's Claude session transcript),
+    "cwd" (that pane's project folder), "fallback" (this process's cwd, then newest overall).
+    """
+    from agent_voice.adapters import claude
+
+    pane = _herdr_pane()
+    if pane is not None:
+        session_id = herdr.claude_session_id(pane)
+        reply = claude.session_reply(dirs, session_id) if session_id else None
+        if reply:
+            return "session-id", reply
+        pane_cwd = pane.get("cwd")
+        reply = claude.project_reply(dirs, pane_cwd) if isinstance(pane_cwd, str) else None
+        if reply:
+            return "cwd", reply
+    return "fallback", claude.last_reply(dirs, cwd=os.getcwd())
+
+
 def _cmd_repeat(args) -> int:
     """Re-speak the last reply read from the agent's own transcript.
 
@@ -271,7 +300,7 @@ def _cmd_repeat(args) -> int:
             or config.load().get("claude_config_dirs")
             or [claude.default_config_dir()]
         )
-        reply = claude.last_reply(dirs, cwd=os.getcwd())
+        _, reply = resolve_reply(dirs)
         if reply is None:
             print("agent-voice: no previous reply found", file=sys.stderr)
             return 1
