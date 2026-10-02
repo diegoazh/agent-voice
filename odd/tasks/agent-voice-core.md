@@ -74,7 +74,7 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
 | T9 | `agent-voice repeat` with Claude Code transcript reader | delegated | done `4f56390` |
 | T10 | Adapters + repeat readers for Codex, Pi, OpenCode, Gemini | later | pending |
 | T11 | Hardening of review follow-ups (owner approved 2026-10-02) | delegated | done except item 4 (moved to T12) |
-| T12 | Focus gating (owner 2026-10-02): speak only when the session has focus (Ghostty frontmost + herdr pane focused); otherwise keep the reply pending in memory and speak it when that pane gains focus; plus T11 item 4 fix | delegated | in progress |
+| T12 | Focus gating (owner 2026-10-02): speak only when the session has focus (Ghostty frontmost + herdr pane focused); otherwise keep the reply pending in memory and speak it when that pane gains focus; plus T11 item 4 fix | delegated | done `83e9abf`, `b989b5e`, `4a5b8f3` (open product questions) |
 
 ### Acceptance criteria (summary)
 
@@ -198,6 +198,27 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
   Follow-ups (WARNING): cli.py:161; backward reader quadratic on very long
   lines (claude.py:50-56). Gap: repeat only searches $CLAUDE_CONFIG_DIR or
   ~/.claude by default, not ~/.claude-work.
+- T11 (7 commits 0c198e3..48c74b6): 11 hardening items; independent
+  verifier PASS on 10, item 4 (foreign pre-existing empty Stop/hooks lost
+  on uninstall) failed -> fixed in T12 `4a5b8f3`. Notable: item 8 was a
+  real bug (`speak --always --detach` did not forward `--always`).
+- T12 `83e9abf` feat(focus), `b989b5e` feat(claude), `4a5b8f3` fix(claude):
+  herdr `focused` is global (one pane/tab/workspace focused per session);
+  Ghostty frontmost via `lsappinfo` (~6 ms, no permission prompt; osascript
+  ~510 ms rejected); herdr has `events.subscribe` but OS focus needs
+  polling anyway -> 0.5 s poll, Ghostty checked first. Unfocused reply ->
+  detached `speak --wait-focus` waiter holding text in memory; one waiter
+  per pane; `off` cancels all; new key `pending_max_wait_s` (default 0 =
+  no limit). 396 tests, new/changed files 100%/100%. TDD deviation: waiter
+  module tests written as a whole file (single collection RED).
+  Independent verifier: PASS on all criteria; the earlier real `False`
+  reading was genuine (focused pane was in another herdr workspace), not
+  a bug. Defects (low): pane-gone not noticed while Ghostty is in the
+  background (bounded by refocus or max wait); stale install backup can
+  mislead uninstall after uninstall+reinstall into a changed file.
+  Open product questions: unknown focus while waiting; pane gone while
+  Ghostty in background; `pending_max_wait_s` default.
+  RDD for T11+T12: pending (covered by the general branch review).
 - Owner request (2026-10-02): run one general review of the whole
   `feat/core-cli` branch (from 20c93bb) after T9.
 
