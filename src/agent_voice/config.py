@@ -32,6 +32,7 @@ _VALID = {
         and 0 < v <= MAX_SPEED
     ),
     "lang": lambda v: isinstance(v, str) and bool(v),
+    "claude_config_dirs": lambda v: isinstance(v, list) and all(isinstance(d, str) and d for d in v),
 }
 
 

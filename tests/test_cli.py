@@ -539,3 +539,21 @@ def test_speak_always_detach_forwards_always_to_the_child(home, monkeypatch):
     assert main(["speak", "--always", "--detach"]) == 0
     (child,) = FakePopen.instances
     assert child.argv == [sys.executable, "-m", "agent_voice", "speak", "--always"]
+
+
+def test_repeat_without_flag_uses_recorded_claude_config_dirs(home, spy, last, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", "/env")
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    config.save({"claude_config_dirs": ["/work", "/personal"]})
+    assert main(["repeat"]) == 0
+    assert last.calls == [(["/work", "/personal"], os.getcwd())]
+
+
+def test_repeat_flag_overrides_recorded_dirs_and_empty_list_uses_env_default(home, spy, last, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", "/env")
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    config.save({"claude_config_dirs": ["/work"]})
+    assert main(["repeat", "--config-dir", "/x"]) == 0
+    config.save({"claude_config_dirs": []})
+    assert main(["repeat"]) == 0
+    assert [c[0] for c in last.calls] == [["/x"], [Path("/env")]]

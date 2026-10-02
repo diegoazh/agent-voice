@@ -282,3 +282,66 @@ def test_unreadable_settings_names_the_file(tmp_path, capsys):
     (tmp_path / "settings.json").mkdir()
     assert main(["install", "claude", "--config-dir", str(tmp_path)]) == 1
     assert str(tmp_path / "settings.json") in capsys.readouterr().err
+
+
+# --- T11: remembered config dirs ------------------------------------------
+
+
+def recorded():
+    from agent_voice import config
+
+    return config.load().get("claude_config_dirs", [])
+
+
+def test_install_records_absolute_deduplicated_dirs(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert main(["install", "claude", "--config-dir", "rel", "--config-dir", str(tmp_path / "rel"),
+                 "--config-dir", str(tmp_path / "b")]) == 0
+    assert recorded() == [str(tmp_path / "rel"), str(tmp_path / "b")]
+    assert main(["install", "claude", "--config-dir", str(tmp_path / "b"),
+                 "--config-dir", str(tmp_path / "c")]) == 0
+    assert recorded() == [str(tmp_path / "rel"), str(tmp_path / "b"), str(tmp_path / "c")]
+
+
+def test_install_records_the_default_dir(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "envdir"))
+    assert main(["install", "claude"]) == 0
+    assert recorded() == [str(tmp_path / "envdir")]
+
+
+def test_uninstall_forgets_only_the_given_dirs(tmp_path):
+    a, b = tmp_path / "a", tmp_path / "b"
+    main(["install", "claude", "--config-dir", str(a), "--config-dir", str(b)])
+    assert main(["uninstall", "claude", "--config-dir", str(a)]) == 0
+    assert recorded() == [str(b)]
+    assert main(["uninstall", "claude", "--config-dir", str(b)]) == 0
+    assert recorded() == []
+
+
+def test_failed_install_records_nothing(tmp_path):
+    bad = tmp_path / "bad"
+    bad.mkdir()
+    (bad / "settings.json").write_text("{oops")
+    assert main(["install", "claude", "--config-dir", str(tmp_path / "good"), "--config-dir", str(bad)]) == 1
+    assert recorded() == []
+
+
+def test_partial_install_records_only_dirs_that_were_written(tmp_path, monkeypatch):
+    a, b = tmp_path / "a", tmp_path / "b"
+    real_replace = os.replace
+
+    def flaky(src, dst):
+        if str(dst).startswith(str(b)):
+            raise OSError(28, "No space left on device")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr("agent_voice.adapters.claude.os.replace", flaky)
+    assert main(["install", "claude", "--config-dir", str(a), "--config-dir", str(b)]) == 1
+    assert recorded() == [str(a)]
+
+
+def test_uninstall_of_an_unknown_dir_does_not_create_a_config_file(tmp_path):
+    from agent_voice import config
+
+    assert main(["uninstall", "claude", "--config-dir", str(tmp_path / "x")]) == 0
+    assert not config.config_path().exists()

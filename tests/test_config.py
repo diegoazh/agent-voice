@@ -135,3 +135,17 @@ def test_several_invalid_values_give_a_single_warning_naming_all(tmp_path, capsy
     assert loaded["voice"] == config.DEFAULTS["voice"] and loaded["speed"] == 1.0
     err = capsys.readouterr().err
     assert err.count("\n") == 1 and "voice" in err and "speed" in err
+
+
+@pytest.mark.parametrize("bad", ["/a", [1], ["a", 2], [""], {"a": 1}])
+def test_invalid_claude_config_dirs_are_dropped_with_one_warning(tmp_path, capsys, bad):
+    env = _write(tmp_path, {"claude_config_dirs": bad})
+    assert "claude_config_dirs" not in config.load(env)
+    err = capsys.readouterr().err
+    assert err.count("\n") == 1 and "claude_config_dirs" in err
+
+
+def test_valid_claude_config_dirs_are_kept(tmp_path, capsys):
+    env = _write(tmp_path, {"claude_config_dirs": ["/a", "/b"]})
+    assert config.load(env)["claude_config_dirs"] == ["/a", "/b"]
+    assert capsys.readouterr().err == ""

@@ -214,7 +214,11 @@ def _cmd_repeat(args) -> int:
     from agent_voice.adapters import claude
 
     try:
-        dirs = args.config_dirs or [claude.default_config_dir()]
+        dirs = (
+            args.config_dirs
+            or config.load().get("claude_config_dirs")
+            or [claude.default_config_dir()]
+        )
         reply = claude.last_reply(dirs, cwd=os.getcwd())
         if reply is None:
             print("agent-voice: no previous reply found", file=sys.stderr)
@@ -245,34 +249,47 @@ def _report_partial(exc) -> int:
     return 1
 
 
-def _cmd_install(args) -> int:
+def _claude_dirs(args) -> list:
+    """Absolute, de-duplicated config dirs from the flags or the Claude default."""
     from agent_voice.adapters import claude
 
+    raw = args.config_dirs or [claude.default_config_dir()]
+    return list(dict.fromkeys(os.path.abspath(d) for d in raw))
+
+
+def _remember_dirs(dirs, forget: bool) -> None:
+    """Keep `claude_config_dirs` (used by `repeat`) in step with install/uninstall."""
+    known = config.load().get("claude_config_dirs", [])
+    kept = [d for d in known if d not in dirs] if forget else list(dict.fromkeys(known + dirs))
+    if kept != known:
+        config.save({"claude_config_dirs": kept})
+
+
+def _run_claude(args, action: str) -> int:
+    from agent_voice.adapters import claude
+
+    dirs = _claude_dirs(args)
     try:
-        results = claude.install(args.config_dirs or [claude.default_config_dir()])
+        results = getattr(claude, action)(dirs)
     except claude.SettingsError as exc:
         print(f"agent-voice: {exc}; nothing changed", file=sys.stderr)
         return 1
     except claude.PartialWriteError as exc:
+        failed = {str(p.parent) for p, _ in exc.failed}
+        _remember_dirs([d for d in dirs if d not in failed], forget=action == "uninstall")
         return _report_partial(exc)
     for path, changed in results:
         print(f"{'updated' if changed else 'unchanged'} {path}")
+    _remember_dirs(dirs, forget=action == "uninstall")
     return 0
+
+
+def _cmd_install(args) -> int:
+    return _run_claude(args, "install")
 
 
 def _cmd_uninstall(args) -> int:
-    from agent_voice.adapters import claude
-
-    try:
-        results = claude.uninstall(args.config_dirs or [claude.default_config_dir()])
-    except claude.SettingsError as exc:
-        print(f"agent-voice: {exc}; nothing changed", file=sys.stderr)
-        return 1
-    except claude.PartialWriteError as exc:
-        return _report_partial(exc)
-    for path, changed in results:
-        print(f"{'updated' if changed else 'unchanged'} {path}")
-    return 0
+    return _run_claude(args, "uninstall")
 
 
 COMMANDS = {
