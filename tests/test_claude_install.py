@@ -345,3 +345,17 @@ def test_uninstall_of_an_unknown_dir_does_not_create_a_config_file(tmp_path):
 
     assert main(["uninstall", "claude", "--config-dir", str(tmp_path / "x")]) == 0
     assert not config.config_path().exists()
+
+
+def test_non_utf8_settings_is_refused_naming_the_file(tmp_path, capsys):
+    (tmp_path / "settings.json").write_bytes(b"\xff\xfe{")
+    assert main(["install", "claude", "--config-dir", str(tmp_path)]) == 1
+    err = capsys.readouterr().err
+    assert str(tmp_path / "settings.json") in err and "not valid JSON" in err
+
+
+def test_non_dict_hook_entries_are_left_alone(tmp_path):
+    body = {"hooks": {"Stop": [{"hooks": ["junk", 3]}]}}
+    (tmp_path / "settings.json").write_text(json.dumps(body))
+    assert main(["uninstall", "claude", "--config-dir", str(tmp_path)]) == 0
+    assert read(tmp_path) == body
