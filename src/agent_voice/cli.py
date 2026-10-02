@@ -28,6 +28,10 @@ def _build_parser():
     speak.add_argument("--detach", action="store_true")
     hook = sub.add_parser("hook", help="agent hook entry point (reads the agent's JSON on stdin)")
     hook.add_argument("agent", choices=["claude"])
+    for name, helptext in (("install", "register the hook"), ("uninstall", "remove the hook")):
+        cmd = sub.add_parser(name, help=f"{helptext} for an agent")
+        cmd.add_argument("agent", choices=["claude"])
+        cmd.add_argument("--config-dir", action="append", dest="config_dirs", metavar="DIR")
     return parser
 
 
@@ -193,7 +197,35 @@ def _cmd_hook(args) -> int:
         return 0
 
 
+def _cmd_install(args) -> int:
+    from agent_voice.adapters import claude
+
+    try:
+        results = claude.install(args.config_dirs or [claude.default_config_dir()])
+    except claude.SettingsError as exc:
+        print(f"agent-voice: {exc}; nothing changed", file=sys.stderr)
+        return 1
+    for path, changed in results:
+        print(f"{'updated' if changed else 'unchanged'} {path}")
+    return 0
+
+
+def _cmd_uninstall(args) -> int:
+    from agent_voice.adapters import claude
+
+    try:
+        results = claude.uninstall(args.config_dirs or [claude.default_config_dir()])
+    except claude.SettingsError as exc:
+        print(f"agent-voice: {exc}; nothing changed", file=sys.stderr)
+        return 1
+    for path, changed in results:
+        print(f"{'updated' if changed else 'unchanged'} {path}")
+    return 0
+
+
 COMMANDS = {
+    "uninstall": _cmd_uninstall,
+    "install": _cmd_install,
     "hook": _cmd_hook,
     "speak": _cmd_speak,
     "download": _cmd_download,
