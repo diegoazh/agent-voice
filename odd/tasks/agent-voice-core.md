@@ -76,7 +76,7 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
 | T11 | Hardening of review follow-ups (owner approved 2026-10-02) | delegated | done except item 4 (moved to T12) |
 | T13 | Hotkeys (owner 2026-10-02): `agent-voice keys skhd` snippet (owner pastes it), `toggle` command, `repeat` follows the focused herdr pane; keys ctrl+alt q (stop) / r (repeat) / v (toggle), conflict-checked | delegated | done `49b7610`, `189881f`, `018d272` |
 | T14 | Owner answers 2026-10-02: `agent-voice pending-wait [30m\|off]` CLI (default no limit) shown in status; waiter keeps waiting on unknown focus (no change); waiter checks pane existence every ~10 s even with Ghostty in background; `repeat` on a resolved herdr pane without transcript says nothing (exit 1) instead of falling back | delegated | done `79f0751`, `25724f5`, `e0efd4a` |
-| T15 | Security/robustness fixes from the general review + audit (owner approved 2026-10-02, all 7 groups; waiters give up after 10 min of continuous herdr failure) | delegated | in progress |
+| T15 | Security/robustness fixes from the general review + audit (owner approved 2026-10-02, all 7 groups; waiters give up after 10 min of continuous herdr failure) | delegated | done (6 commits, verified, reviewed) |
 | T12 | Focus gating (owner 2026-10-02): speak only when the session has focus (Ghostty frontmost + herdr pane focused); otherwise keep the reply pending in memory and speak it when that pane gains focus; plus T11 item 4 fix | delegated | done `83e9abf`, `b989b5e`, `4a5b8f3` (open product questions) |
 
 ### Acceptance criteria (summary)
@@ -255,6 +255,22 @@ and private. Existing tools leak text (edge-tts) or persist replies to disk
   SIGKILL; download without timeout / http redirects. Slice warnings incl.
   possible SIGTERM lock deadlock in player.py:215-226 (two lenses).
   Fix task pending owner approval.
+- T15 `6b37ce3`, `6e38891`, `65d1d6a`, `3da38f8`, `1075949`, `9e04135`:
+  all 7 groups fixed (safe child cwd + PYTHONSAFEPATH/-P; linear regexes,
+  2000/line and 50000/reply caps, speaker PID claimed before text
+  processing; exact hook ownership; waiter gives up after 600 s of
+  continuous unknown focus; 0.5 s hook focus budget, pid<=1 and
+  PermissionError, absolute hook path / refuse when missing, WAV 0600,
+  conservative stale temp sweep, download timeout/size cap/https-only
+  redirects, id validation; RLock in AfplayPlayer). 517 tests, 99%.
+  Independent verifier re-attacked: PASS on all 7 groups (evil cwd incl.
+  sitecustomize/.pth no longer loads; regex worst case 0.19 s on fuzz;
+  stop/off cut a speaker during processing in ~0.1 s; hook 0.8 s with hung
+  herdr+lsappinfo). RDD: HIGH; owner granted; 4 lenses approved;
+  acknowledged. Remaining Low/Info follow-ups: `_is_ours` basename-only
+  match (`$(evil)/agent-voice hook claude`); silent per-line truncation;
+  stop race during detached child startup (~0.3 s); no total download
+  deadline; claim-before-empty-check warnings.
 - Owner request (2026-10-02): run one general review of the whole
   `feat/core-cli` branch (from 20c93bb) after T9.
 
