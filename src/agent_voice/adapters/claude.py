@@ -77,8 +77,13 @@ def _reverse_lines(path):
         yield b"".join(reversed(pending))
 
 
-def _reply_of(session):
-    """Final assistant text of one transcript file, or None."""
+def _reply_of(session, nth=1):
+    """Assistant text of one transcript file, `nth` replies back from the end, or None.
+
+    `nth=1` is the final reply; `nth=2` the one before it, and so on. Only entries that
+    qualify (non-sidechain assistant with text) are counted.
+    """
+    skip = nth - 1
     for line in _reverse_lines(session):
         try:
             entry = json.loads(line)
@@ -91,11 +96,13 @@ def _reply_of(session):
         ):
             reply = _reply_text(entry)
             if reply:
-                return reply
+                if skip == 0:
+                    return reply
+                skip -= 1
     return None
 
 
-def last_reply(config_dirs, cwd=None):
+def last_reply(config_dirs, cwd=None, nth=1):
     """Final assistant text of the newest Claude Code session, or None.
 
     Read-only. Rule: scanning the session from the end, the first non-sidechain
@@ -105,20 +112,20 @@ def last_reply(config_dirs, cwd=None):
     `last_assistant_message`. Malformed lines are skipped.
     """
     session = _newest_session(config_dirs, cwd)
-    return None if session is None else _reply_of(session)
+    return None if session is None else _reply_of(session, nth)
 
 
-def session_reply(config_dirs, session_id):
+def session_reply(config_dirs, session_id, nth=1):
     """Final assistant text of exactly this session id (any project folder), or None."""
     session = _session_file(config_dirs, session_id)
-    return None if session is None else _reply_of(session)
+    return None if session is None else _reply_of(session, nth)
 
 
-def project_reply(config_dirs, cwd):
+def project_reply(config_dirs, cwd, nth=1):
     """Final assistant text of the newest session in `cwd`'s project folder only, or None."""
     pattern = f"projects/{glob.escape(encode_project_dir(cwd))}/*.jsonl"
     session = _newest(f for d in config_dirs for f in Path(d).glob(pattern))
-    return None if session is None else _reply_of(session)
+    return None if session is None else _reply_of(session, nth)
 
 
 def _session_focused(detector):

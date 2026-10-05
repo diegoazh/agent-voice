@@ -400,12 +400,14 @@ def test_python_dash_m_status_with_temp_home(tmp_path):
 def last(monkeypatch):
     calls = []
 
-    def fake(config_dirs, cwd=None):
+    def fake(config_dirs, cwd=None, nth=1):
         calls.append((list(config_dirs), cwd))
+        fake.nths.append(nth)
         return fake.reply
 
     fake.reply = "Hola SECRETMARKER."
     fake.calls = calls
+    fake.nths = []
     monkeypatch.setattr("agent_voice.adapters.claude.last_reply", fake)
     return fake
 
@@ -740,6 +742,52 @@ def test_executable_is_the_running_agent_voice_absolute_path(monkeypatch):
     monkeypatch.setattr(cli.sys, "argv", ["/x/y/__main__.py"])
     monkeypatch.setattr(cli.shutil, "which", lambda name: "/found/agent-voice")
     assert cli._executable() == "/found/agent-voice"
+
+
+@pytest.mark.parametrize("argv, nth", [
+    (["repeat"], 1), (["repeat", "1"], 1), (["repeat", "3"], 3),
+    (["repeat", "2", "--voice", "ef_dora"], 2),
+])
+def test_repeat_forwards_the_index_to_the_reader(home, spy, last, monkeypatch, argv, nth):
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    assert main(argv + ["--config-dir", "/a"]) == 0
+    assert last.nths == [nth]
+
+
+@pytest.mark.parametrize("bad", ["0", "-1"])
+def test_repeat_rejects_an_index_below_one_text_free(home, spy, last, capsys, bad):
+    assert main(["repeat", bad]) != 0
+    assert last.nths == [] and spy.speaks == []
+    err = capsys.readouterr().err
+    assert "SECRETMARKER" not in err and "Hola" not in err
+
+
+def test_repeat_out_of_range_index_is_the_text_free_no_reply_error(home, spy, last, capsys):
+    last.reply = None
+    assert main(["repeat", "9", "--config-dir", "/a"]) == 1
+    assert capsys.readouterr().err == "agent-voice: no previous reply found\n"
+    assert spy.speaks == []
+
+
+def test_repeat_index_is_forwarded_to_the_pane_session_and_project_readers(
+    home, spy, monkeypatch, tmp_path
+):
+    from agent_voice.adapters import claude
+
+    _session(tmp_path, "-p", SID, "only one reply", 1000)
+    _herdr_pane(monkeypatch, _claude_pane())
+    FakePopen.instances = []
+    monkeypatch.setattr("agent_voice.cli.subprocess.Popen", FakePopen)
+    assert main(["repeat", "2", "--detach", "--config-dir", str(tmp_path)]) == 1
+    assert FakePopen.instances == []
+    seen = []
+    real = claude.session_reply
+    monkeypatch.setattr(
+        "agent_voice.adapters.claude.session_reply",
+        lambda d, sid, nth=1: seen.append(nth) or real(d, sid, nth=nth),
+    )
+    assert main(["repeat", "1", "--detach", "--config-dir", str(tmp_path)]) == 0
+    assert seen == [1]
 
 
 # --- repeat follows the focused herdr session --------------------------------

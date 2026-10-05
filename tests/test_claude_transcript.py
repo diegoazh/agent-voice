@@ -333,3 +333,50 @@ def test_project_reply_reads_only_that_projects_folder(tmp_path):
     write_session(tmp_path, "-elsewhere", "s2", [entry("assistant", text("newer"))], mtime=2000)
     assert claude.project_reply([tmp_path], "/w/app") == "in project"
     assert claude.project_reply([tmp_path], "/w/none") is None
+
+
+# --- nth: go N assistant turns back ------------------------------------------
+
+
+def _three_replies(tmp_path):
+    return write_session(tmp_path, "-p", "s1", [
+        entry("assistant", text("first")),
+        entry("user", text("q")),
+        entry("assistant", text("second")),
+        entry("assistant", text("third")),
+    ])
+
+
+def test_nth_two_returns_the_one_before_last_reply(tmp_path):
+    _three_replies(tmp_path)
+    assert claude.last_reply([tmp_path], nth=2) == "second"
+    assert claude.last_reply([tmp_path], nth=3) == "first"
+    assert claude.last_reply([tmp_path], nth=1) == "third"
+
+
+def test_nth_skips_sidechain_thinking_and_empty_entries_while_counting(tmp_path):
+    write_session(tmp_path, "-p", "s1", [
+        entry("assistant", text("kept old")),
+        entry("assistant", text("side"), sidechain=True),
+        entry("assistant", thinking("only thinking")),
+        entry("assistant", text("")),
+        entry("assistant", text("kept new")),
+        entry("assistant", tool_use()),
+    ])
+    assert claude.last_reply([tmp_path], nth=2) == "kept old"
+
+
+def test_nth_beyond_the_available_replies_is_none(tmp_path):
+    _three_replies(tmp_path)
+    assert claude.last_reply([tmp_path], nth=4) is None
+
+
+def test_nth_is_threaded_through_session_and_project_readers(tmp_path):
+    write_session(tmp_path, claude.encode_project_dir("/w/app"), "sid", [
+        entry("assistant", text("older")),
+        entry("assistant", text("newer")),
+    ])
+    assert claude.session_reply([tmp_path], "sid", nth=2) == "older"
+    assert claude.project_reply([tmp_path], "/w/app", nth=2) == "older"
+    assert claude.session_reply([tmp_path], "sid", nth=3) is None
+    assert claude.project_reply([tmp_path], "/w/app", nth=3) is None

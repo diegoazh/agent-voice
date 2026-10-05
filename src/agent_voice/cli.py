@@ -34,7 +34,9 @@ def _build_parser():
     speak.add_argument("--detach", action="store_true")
     speak.add_argument("--always", action="store_true", help=argparse.SUPPRESS)
     speak.add_argument("--wait-focus", action="store_true", help=argparse.SUPPRESS)
-    repeat = sub.add_parser("repeat", help="re-speak the last reply from the agent's transcript")
+    repeat = sub.add_parser("repeat", help="re-speak a reply from the agent's transcript (default: the last)")
+    repeat.add_argument("n", nargs="?", type=int, default=1, metavar="N",
+                        help="how many replies back (1 = last)")
     repeat.add_argument("--config-dir", action="append", dest="config_dirs", metavar="DIR")
     repeat.add_argument("--voice")
     repeat.add_argument("--speed", type=float)
@@ -315,7 +317,7 @@ def _herdr_pane():
         return None
 
 
-def resolve_reply(dirs):
+def resolve_reply(dirs, nth=1):
     """(strategy, reply) for `repeat`; reply is None when nothing was found.
 
     Strategies, in order: "session-id" (the herdr pane's Claude session transcript),
@@ -329,15 +331,15 @@ def resolve_reply(dirs):
     pane = _herdr_pane()
     if pane is not None:
         session_id = herdr.claude_session_id(pane)
-        reply = claude.session_reply(dirs, session_id) if session_id else None
+        reply = claude.session_reply(dirs, session_id, nth=nth) if session_id else None
         if reply:
             return "session-id", reply
         pane_cwd = pane.get("cwd")
-        reply = claude.project_reply(dirs, pane_cwd) if isinstance(pane_cwd, str) else None
+        reply = claude.project_reply(dirs, pane_cwd, nth=nth) if isinstance(pane_cwd, str) else None
         if reply:
             return "cwd", reply
         return "no-pane-reply", None
-    return "fallback", claude.last_reply(dirs, cwd=os.getcwd())
+    return "fallback", claude.last_reply(dirs, cwd=os.getcwd(), nth=nth)
 
 
 def _cmd_repeat(args) -> int:
@@ -348,13 +350,16 @@ def _cmd_repeat(args) -> int:
     """
     from agent_voice.adapters import claude
 
+    if args.n < 1:
+        print("agent-voice: repeat index must be 1 or greater", file=sys.stderr)
+        return 2
     try:
         dirs = (
             args.config_dirs
             or config.load().get("claude_config_dirs")
             or [claude.default_config_dir()]
         )
-        strategy, reply = resolve_reply(dirs)
+        strategy, reply = resolve_reply(dirs, nth=args.n)
         if reply is None:
             what = "for this pane" if strategy == "no-pane-reply" else "found"
             print(f"agent-voice: no previous reply {what}", file=sys.stderr)
