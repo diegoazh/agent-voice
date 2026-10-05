@@ -58,14 +58,20 @@ Out of scope: A2 (hotkey auto-copy via osascript) — deferred as a later option
     line AND branch floor cleared on changed code. Deviation: `repeat 0`/`-1` rejected in
     `_cmd_repeat` (text-free `"...index must be 1 or greater"`, exit 2), not via argparse.
 
-- [ ] **T2 — pause/resume toggle (`pause`)**
+- [x] **T2 — pause/resume toggle (`pause`)** — DONE, commit `98cb795`.
   - RED: SIGSTOP when running, SIGCONT when stopped (injectable state fn); group-leader guard;
     no-op without verified speaker; `stop` SIGCONT-before-SIGTERM on a paused speaker.
-  - Code: `player.py` pause/resume helper (reuse `_read_record`, `_is_previous_speaker`,
-    `process_start_time`, `runtime_dir`) + `_is_stopped` via `ps -o stat=`; patch `_terminate_previous`.
-    `cli._cmd_pause` + subparser. Hotkey: `ctrl + alt - p : <exe> pause`.
-  - Tests: `test_player.py` (mocked `os.kill`/`os.killpg`, guard, paused-then-stop),
-    `test_cli.py` (dispatch), keys exact-output test updated.
+  - Code: `player.py` `pause(...)` + `process_state` + `_signal` (reuse `_read_record`,
+    `_is_previous_speaker`, `process_start_time`, `runtime_dir`); patched `_terminate_previous`
+    (best-effort SIGCONT before SIGTERM). `cli._cmd_pause` + subparser + `ctrl+alt-p` hotkey line.
+  - Tests: `test_player.py` (SIGSTOP/SIGCONT by state, group-leader guard, no-op, ProcessLookup/
+    Permission/getpgid failures, stop-SIGCONT-before-SIGTERM, real sleeper toggle), `test_cli.py`
+    (dispatch + keys exact-output).
+  - Evidence: 19 RED → full suite 546 passed. Coverage spot-check: player.py 96% / cli.py 89%;
+    the 3 player.py partial branches (247,303,305) are pre-existing (identical with changes stashed),
+    changed code fully covered → floor cleared. Native review: high-risk, consent GRANTED,
+    4-lens **0 findings, approved, acknowledged (authority burned)**.
+  - Behavior note: if `ps` can't read state, `pause` defaults to treating the speaker as running (SIGSTOP).
   - Route: delegated writer. Trigger: writer (2+ non-trivial files).
 
 - [ ] **T3 — say-clipboard (`say-clipboard`)**
@@ -89,7 +95,8 @@ Out of scope: A2 (hotkey auto-copy via osascript) — deferred as a later option
 - 2026-10-04: feature doc created, branch `feat/playback-controls` cut from `feat/core-cli` (HEAD 188f3a0). Mapping done (Explore agent).
 - 2026-10-04: T1 done, commit `6b12b55`. Parent coverage spot-check confirmed BrPart=0 on changed modules.
 - 2026-10-04: native review of the T1 slice (base-ref 188f3a0, high-risk/process_boundary) — consent GRANTED by Diego, 4-lens review (risk/resilience/readability/reliability), **0 findings, approved, acknowledged (authority burned)**. Reviewed boundary advances to the T1 slice tip.
+- 2026-10-04: T2 done, commit `98cb795`. Native review of the T2 slice (base-ref 7868183, high-risk) — consent GRANTED, 4-lens **0 findings, approved, acknowledged (authority burned)**. Boundary advances to the T2 slice tip.
 
 ## Next step
 
-Delegate T2 (pause/resume toggle) under strict TDD. New review base-ref = T1 slice tip.
+Delegate T3 (say-clipboard) under strict TDD. New review base-ref = T2 slice tip.
