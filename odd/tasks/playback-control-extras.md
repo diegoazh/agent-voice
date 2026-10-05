@@ -87,8 +87,9 @@ Out of scope: A2 (hotkey auto-copy via osascript) — deferred as a later option
 ## Progress / evidence
 
 - 2026-10-04: feature doc created, branch `feat/playback-controls` cut from `feat/core-cli` (HEAD 188f3a0). Mapping done (Explore agent).
-- 2026-10-04: T1 done, commit `6b12b55`. Parent coverage spot-check confirmed BrPart=0 on changed modules. Pending: native review assess on the slice.
+- 2026-10-04: T1 done, commit `6b12b55`. Parent coverage spot-check confirmed BrPart=0 on changed modules.
+- 2026-10-04: native review of the T1 slice (base-ref 188f3a0, high-risk/process_boundary) — consent GRANTED by Diego, 4-lens review (risk/resilience/readability/reliability), **0 findings, approved, acknowledged (authority burned)**. Reviewed boundary advances to the T1 slice tip.
 
 ## Next step
 
-Run native review assess on the committed slice, then delegate T2 (pause/resume) under strict TDD.
+Delegate T2 (pause/resume toggle) under strict TDD. New review base-ref = T1 slice tip.
