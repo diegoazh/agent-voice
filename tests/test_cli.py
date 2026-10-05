@@ -715,6 +715,7 @@ def test_keys_skhd_prints_the_exact_block(monkeypatch, capsys):
         "ctrl + alt - r : /opt/av/bin/agent-voice repeat --detach\n"
         "ctrl + alt - v : /opt/av/bin/agent-voice toggle\n"
         "ctrl + alt - p : /opt/av/bin/agent-voice pause\n"
+        "ctrl + alt - c : /opt/av/bin/agent-voice say-clipboard --detach\n"
     )
 
 
@@ -725,6 +726,7 @@ def test_keys_skhd_shell_quotes_a_path_with_a_space(monkeypatch, capsys):
     assert lines[1] == "ctrl + alt - q : '/Users/a b/bin/agent-voice' stop"
     assert lines[2] == "ctrl + alt - r : '/Users/a b/bin/agent-voice' repeat --detach"
     assert lines[4] == "ctrl + alt - p : '/Users/a b/bin/agent-voice' pause"
+    assert lines[5] == "ctrl + alt - c : '/Users/a b/bin/agent-voice' say-clipboard --detach"
 
 
 def test_keys_skhd_writes_no_files(home, monkeypatch, tmp_path):
@@ -1056,3 +1058,90 @@ def test_speaker_pid_is_registered_before_text_processing_and_released_after(hom
     assert main(["speak"]) == 0
     assert seen == [os.getpid()]
     assert player._read_pid(player.runtime_dir()) is None
+
+
+# --- say-clipboard --------------------------------------------------------
+
+
+@pytest.fixture
+def clipboard(monkeypatch):
+    class Clip:
+        value = "Hola SECRETMARKER."
+
+    monkeypatch.setattr("agent_voice.cli._clipboard_text", lambda: Clip.value)
+    return Clip
+
+
+def test_say_clipboard_speaks_the_clipboard_even_when_disabled(home, spy, clipboard, monkeypatch):
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    assert main(["say-clipboard"]) == 0
+    (chunks, _), = spy.speaks
+    assert chunks == ["Hola SECRETMARKER."]
+
+
+def test_say_clipboard_honours_speech_flags(home, spy, clipboard, monkeypatch):
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    argv = ["say-clipboard", "--voice", "ef_dora", "--speed", "0.8", "--lang", "es", "--model", "fp16"]
+    assert main(argv) == 0
+    assert spy.resolved == ["fp16"]
+    (_, synth), = spy.speaks
+    synth("x")
+    assert spy.synth_calls == [("x", {"voice": "ef_dora", "speed": 0.8, "lang": "es"})]
+
+
+def test_say_clipboard_detach_hands_text_to_child_that_ignores_disabled_flag(
+    home, spy, clipboard, monkeypatch
+):
+    FakePopen.instances = []
+    monkeypatch.setattr("agent_voice.cli.subprocess.Popen", FakePopen)
+    assert main(["say-clipboard", "--detach", "--voice", "ef_dora"]) == 0
+    (child,) = FakePopen.instances
+    assert child.argv == [*PY, "-m", "agent_voice", "speak", "--voice", "ef_dora", "--always"]
+    assert child.stdin.data == b"Hola SECRETMARKER." and child.stdin.closed
+    assert spy.speaks == []
+
+
+@pytest.mark.parametrize("value", ["", "  \n\t ", None])
+def test_say_clipboard_empty_or_unreadable_is_the_text_free_error(home, spy, clipboard, capsys, value):
+    clipboard.value = value
+    assert main(["say-clipboard"]) == 1
+    captured = capsys.readouterr()
+    assert captured.err == "agent-voice: nothing in the clipboard to speak\n"
+    assert captured.out == "" and spy.speaks == []
+
+
+def test_say_clipboard_never_persists_the_clipboard_text(home, spy, clipboard, monkeypatch):
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    assert main(["say-clipboard"]) == 0
+    assert all(b"SECRETMARKER" not in p.read_bytes() for p in home.rglob("*") if p.is_file())
+
+
+def test_clipboard_text_runs_pbpaste_bounded(monkeypatch):
+    from agent_voice import cli
+
+    calls = []
+
+    def run(argv, **kw):
+        calls.append((argv, kw))
+        return type("R", (), {"returncode": 0, "stdout": "copied"})()
+
+    monkeypatch.setattr(cli.subprocess, "run", run)
+    assert cli._clipboard_text() == "copied"
+    assert calls == [(["pbpaste"], {"capture_output": True, "text": True, "timeout": 5})]
+
+
+@pytest.mark.parametrize("failure", ["nonzero", "oserror", "timeout"])
+def test_clipboard_text_returns_none_on_failure(monkeypatch, failure):
+    import subprocess
+
+    from agent_voice import cli
+
+    def run(argv, **kw):
+        if failure == "oserror":
+            raise FileNotFoundError("pbpaste")
+        if failure == "timeout":
+            raise subprocess.TimeoutExpired(argv, 5)
+        return type("R", (), {"returncode": 1, "stdout": "partial"})()
+
+    monkeypatch.setattr(cli.subprocess, "run", run)
+    assert cli._clipboard_text() is None

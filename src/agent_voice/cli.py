@@ -44,6 +44,12 @@ def _build_parser():
     repeat.add_argument("--lang")
     repeat.add_argument("--model", choices=sorted(models.VARIANTS))
     repeat.add_argument("--detach", action="store_true")
+    clip = sub.add_parser("say-clipboard", help="speak the current clipboard contents")
+    clip.add_argument("--voice")
+    clip.add_argument("--speed", type=float)
+    clip.add_argument("--lang")
+    clip.add_argument("--model", choices=sorted(models.VARIANTS))
+    clip.add_argument("--detach", action="store_true")
     keys = sub.add_parser("keys", help="print a hotkey snippet for a hotkey daemon (never writes files)")
     keys.add_argument("target")
     hook = sub.add_parser("hook", help="agent hook entry point (reads the agent's JSON on stdin)")
@@ -376,6 +382,28 @@ def _cmd_repeat(args) -> int:
         return 1
 
 
+def _clipboard_text():
+    """The macOS clipboard text via `pbpaste`, or None if it could not be read."""
+    try:
+        result = subprocess.run(["pbpaste"], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout if result.returncode == 0 else None
+
+
+def _cmd_say_clipboard(args) -> int:
+    """Speak the clipboard. An explicit user command, so it ignores the enabled flag.
+
+    The clipboard is user content: it only flows into the speech pipeline, never to
+    disk, stdout or stderr; messages are static.
+    """
+    clip = _clipboard_text()
+    if clip is None or not clip.strip():
+        print("agent-voice: nothing in the clipboard to speak", file=sys.stderr)
+        return 1
+    return _speak_text(args, clip, config.load(), always=True)
+
+
 KEY_TARGETS = ("skhd",)
 
 
@@ -400,6 +428,7 @@ def _cmd_keys(args) -> int:
     print(f"ctrl + alt - r : {exe} repeat --detach")
     print(f"ctrl + alt - v : {exe} toggle")
     print(f"ctrl + alt - p : {exe} pause")
+    print(f"ctrl + alt - c : {exe} say-clipboard --detach")
     return 0
 
 
@@ -468,6 +497,7 @@ def _cmd_uninstall(args) -> int:
 
 COMMANDS = {
     "repeat": _cmd_repeat,
+    "say-clipboard": _cmd_say_clipboard,
     "uninstall": _cmd_uninstall,
     "install": _cmd_install,
     "hook": _cmd_hook,
