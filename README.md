@@ -1,6 +1,8 @@
 # agent-voice
 
-Local, privacy-first text-to-speech for coding agents (Claude Code, Codex, OpenCode, Pi, Gemini CLI), powered by [Kokoro](https://github.com/thewh1teagle/kokoro-onnx). Nothing leaves your machine.
+Local, privacy-first text-to-speech for coding agents, powered by [Kokoro](https://github.com/thewh1teagle/kokoro-onnx). Nothing leaves your machine.
+
+**Supported agent today: Claude Code.** Codex, OpenCode, Pi, and Gemini CLI are planned but not implemented yet; see [ROADMAP.md](ROADMAP.md).
 
 ## Requirements / OS support
 

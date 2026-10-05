@@ -476,16 +476,16 @@ def test_whole_pipeline_on_hostile_100k_input_is_fast(raw):
 
 # bold spans containing a commit SHA
 def test_bold_span_starting_with_sha_leaves_no_asterisks():
-    out = clean("**241dd4d chore(lint):** movió el disable")
+    out = clean("**1a2b3c4 chore: tidy imports** quedó listo")
     assert "*" not in out
-    assert "chore(lint):" in out
-    assert "movió el disable" in out
+    assert "chore: tidy imports" in out
+    assert "quedó listo" in out
 
 
 def test_bold_span_with_only_a_sha_leaves_no_asterisks():
-    out = clean("**3780b64 refactor(meteorology):**")
+    out = clean("**9f8e7d6 refactor(parser):**")
     assert "*" not in out
-    assert "refactor(meteorology)" in out
+    assert "refactor(parser)" in out
 
 
 def test_ordinary_bold_still_unwraps_after_emphasis_reorder():
@@ -552,12 +552,12 @@ def test_single_tilde_not_in_path_survives_marker_cleanup():
 
 
 def test_emoji_inside_bold_leaves_no_asterisks():
-    out = clean("**🎯 Criterios de aceptación**")
+    out = clean("**🎯 Resumen del día**")
     assert "*" not in out
-    assert "Criterios de aceptación" in out
+    assert "Resumen del día" in out
 
 
 def test_emoji_before_bold_leaves_no_asterisks():
-    out = clean("🎯 **Criterios de aceptación**")
+    out = clean("🎯 **Resumen del día**")
     assert "*" not in out
-    assert "Criterios de aceptación" in out
+    assert "Resumen del día" in out
