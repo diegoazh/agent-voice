@@ -22,7 +22,9 @@ DEFAULTS = {
 
 # Spanish voices only; validated statically so no model load is needed.
 VOICES = ("ef_dora", "em_alex", "em_santa")
-MAX_SPEED = 10.0
+MIN_SPEED = 1.0
+MAX_SPEED = 2.0
+STEP = 0.25
 
 _VALID = {
     "voice": lambda v: v in VOICES,
@@ -31,7 +33,7 @@ _VALID = {
         isinstance(v, (int, float))
         and not isinstance(v, bool)
         and math.isfinite(v)
-        and 0 < v <= MAX_SPEED
+        and MIN_SPEED <= v <= MAX_SPEED
     ),
     "pending_max_wait_s": lambda v: (
         isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v >= 0

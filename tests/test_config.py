@@ -108,6 +108,8 @@ def _write(tmp_path, data):
         {"speed": -1.5},
         {"speed": float("nan")},
         {"speed": 100},
+        {"speed": 0.9},
+        {"speed": 2.1},
         {"lang": 5},
         {"lang": ""},
         {"pending_max_wait_s": -1},
@@ -124,6 +126,17 @@ def test_invalid_value_falls_back_to_default_with_one_warning(tmp_path, capsys, 
     assert loaded["enabled"] is True
     err = capsys.readouterr().err
     assert err.count("\n") == 1 and key in err
+
+
+@pytest.mark.parametrize("speed", [1.0, 1, 1.5, 2.0, 2])
+def test_speed_bounds_are_inclusive(tmp_path, capsys, speed):
+    env = _write(tmp_path, {"speed": speed})
+    assert config.load(env)["speed"] == speed
+    assert capsys.readouterr().err == ""
+
+
+def test_speed_range_constants():
+    assert (config.MIN_SPEED, config.MAX_SPEED, config.STEP) == (1.0, 2.0, 0.25)
 
 
 def test_valid_values_load_unchanged_without_warning(tmp_path, capsys):

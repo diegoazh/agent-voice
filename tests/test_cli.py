@@ -103,6 +103,54 @@ def test_voice_with_unknown_name_fails_and_does_not_persist(home, capsys):
     assert config.load()["voice"] == "em_alex"
 
 
+def test_speed_without_value_prints_current(home, capsys):
+    assert main(["speed"]) == 0
+    assert capsys.readouterr().out.strip() == "1.0"
+
+
+def test_speed_up_steps_from_default(home, capsys):
+    capsys.readouterr()
+    assert main(["speed", "up"]) == 0
+    assert capsys.readouterr().out.strip() == "1.25"
+    assert config.load()["speed"] == 1.25
+
+
+def test_speed_up_climbs_and_caps_silently_at_max(home, capsys):
+    seen = []
+    for _ in range(5):
+        capsys.readouterr()
+        assert main(["speed", "up"]) == 0
+        seen.append(config.load()["speed"])
+        assert capsys.readouterr().out.strip() == str(seen[-1])
+    assert seen == [1.25, 1.5, 1.75, 2.0, 2.0]
+
+
+def test_speed_down_stays_silently_at_min(home, capsys):
+    capsys.readouterr()
+    assert main(["speed", "down"]) == 0
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "1.0" and captured.err == ""
+    assert config.load()["speed"] == 1.0
+
+
+def test_speed_up_then_down_round_trips(home):
+    main(["speed", "up"])
+    main(["speed", "up"])
+    main(["speed", "down"])
+    assert config.load()["speed"] == 1.25
+    main(["speed", "down"])
+    assert config.load()["speed"] == 1.0
+
+
+@pytest.mark.parametrize("arg", ["sideways", "1.5", "UP", ""])
+def test_speed_invalid_argument_is_rejected_and_not_persisted(home, capsys, arg):
+    main(["speed", "up"])
+    capsys.readouterr()
+    assert main(["speed", arg]) == 2
+    assert "agent-voice: use: agent-voice speed [up|down]" in capsys.readouterr().err
+    assert config.load()["speed"] == 1.25
+
+
 def test_model_without_arg_prints_current_and_variants(home, capsys):
     assert main(["model"]) == 0
     out = capsys.readouterr().out

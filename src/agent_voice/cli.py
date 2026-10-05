@@ -23,6 +23,12 @@ def _build_parser():
     voice.add_argument("name", nargs="?")
     model = sub.add_parser("model", help="show or set the default model variant")
     model.add_argument("name", nargs="?")
+    speed = sub.add_parser(
+        "speed",
+        help=f"show the reading speed, or step it up/down by {config.STEP} "
+        f"({config.MIN_SPEED}-{config.MAX_SPEED})",
+    )
+    speed.add_argument("direction", nargs="?", metavar="up|down")
     pending = sub.add_parser("pending-wait", help="show or set how long a reply may wait for focus")
     pending.add_argument("duration", nargs="?", metavar="DURATION|off")
     download = sub.add_parser("download", help="download model files (the only network path)")
@@ -164,6 +170,21 @@ def _format_wait(seconds) -> str:
         if seconds % _UNITS[unit] == 0:
             return f"{seconds // _UNITS[unit]}{unit}"
     return f"{seconds}s"
+
+
+def _cmd_speed(args) -> int:
+    current = config.load()["speed"]
+    if args.direction is None:
+        print(current)
+        return 0
+    if args.direction not in ("up", "down"):
+        print("agent-voice: use: agent-voice speed [up|down]", file=sys.stderr)
+        return 2
+    delta = config.STEP if args.direction == "up" else -config.STEP
+    new = round(min(max(current + delta, config.MIN_SPEED), config.MAX_SPEED), 2)
+    config.save({"speed": new})
+    print(new)
+    return 0
 
 
 def _cmd_pending_wait(args) -> int:
@@ -505,6 +526,7 @@ COMMANDS = {
     "download": _cmd_download,
     "model": _cmd_model,
     "voice": _cmd_voice,
+    "speed": _cmd_speed,
     "on": _cmd_on,
     "off": _cmd_off,
     "stop": _cmd_stop,
