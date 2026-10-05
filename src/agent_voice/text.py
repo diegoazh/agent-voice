@@ -155,6 +155,10 @@ def _inline_code(line: str) -> str:
 def _inline(line: str) -> str:
     """Clean inline Markdown, links, code and paths of one line."""
     line = _inline_code(line)
+    # Unwrap emphasis first: removing a SHA/path/URL inside a span would leave
+    # whitespace next to the markers and stop them from matching.
+    for pattern in _EMPHASIS:
+        line = pattern.sub(r"\1", line)
     line = _IMAGE.sub(r"\1", line)
     line = _MD_LINK.sub(r"\1", line)
     line = _AUTOLINK.sub(LINK_INLINE, line)
@@ -162,8 +166,6 @@ def _inline(line: str) -> str:
     line = _HTML_TAG.sub("", line)
     line = _PATH.sub(LINK_INLINE, line)
     line = _HASH.sub("", line)
-    for pattern in _EMPHASIS:
-        line = pattern.sub(r"\1", line)
     return line.strip()
 
 

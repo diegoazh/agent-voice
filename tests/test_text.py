@@ -472,3 +472,41 @@ def test_reply_within_the_cap_has_no_notice():
 @pytest.mark.parametrize("raw", ["*a " * 40000, "# a" + " " * 100000 + "x", "![" * 60000, "." * 100000 + "x"])
 def test_whole_pipeline_on_hostile_100k_input_is_fast(raw):
     assert _elapsed(chunks, raw) < _SLOW
+
+
+# bold spans containing a commit SHA
+def test_bold_span_starting_with_sha_leaves_no_asterisks():
+    out = clean("**241dd4d chore(lint):** movió el disable")
+    assert "*" not in out
+    assert "chore(lint):" in out
+    assert "movió el disable" in out
+
+
+def test_bold_span_with_only_a_sha_leaves_no_asterisks():
+    out = clean("**3780b64 refactor(meteorology):**")
+    assert "*" not in out
+    assert "refactor(meteorology)" in out
+
+
+def test_ordinary_bold_still_unwraps_after_emphasis_reorder():
+    out = clean("texto **negrita** fin")
+    assert "*" not in out
+    assert "negrita" in out
+
+
+def test_bold_span_with_a_path_leaves_no_asterisks():
+    out = clean("mirá **/usr/local/bin/tool** ahora")
+    assert "*" not in out
+    assert _text.LINK_INLINE in out
+
+
+def test_bold_span_with_a_url_leaves_no_asterisks():
+    out = clean("**https://example.com** fin")
+    assert "*" not in out
+    assert _text.LINK_INLINE in out
+
+
+def test_bold_span_with_an_autolink_leaves_no_asterisks():
+    out = clean("**<https://example.com>** fin")
+    assert "*" not in out
+    assert _text.LINK_INLINE in out
