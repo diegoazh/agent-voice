@@ -1,0 +1,11 @@
+# Used by `trivy fs --config trivy.yaml .` and the CI job.
+scan:
+  scanners:
+    - vuln
+    - misconfig   # no Dockerfile/IaC today; kept to cover future additions
+    - secret
+severity:
+  - HIGH
+  - CRITICAL
+ignorefile: .trivyignore
+exit-code: 1       # fail on any remaining HIGH/CRITICAL finding

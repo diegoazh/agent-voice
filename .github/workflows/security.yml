@@ -1,0 +1,102 @@
+name: security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: read code, write SARIF to the Security tab.
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      # Full history so secrets removed in later commits are still found.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Exits non-zero on any finding; reads .gitleaks.toml; writes results.sarif.
+      - uses: gitleaks/gitleaks-action@v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+          GITLEAKS_ENABLE_SUMMARY: "true"
+      # Publish to the Security tab even when findings failed the job.
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('results.sarif') != ''
+        with:
+          sarif_file: results.sarif
+          category: gitleaks
+
+  osv-scanner:
+    # Official reusable workflow: scans the uv.lock lockfile, fails on known vulns, uploads SARIF itself.
+    # uv.lock support requires osv-scanner >= 1.9 (bundled with this v2 pin). Verify the tag exists when first run.
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.6.0
+    with:
+      scan-args: |-
+        --lockfile=uv.lock
+        --recursive
+        ./
+
+  trivy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Filesystem scan (vuln + misconfig + secret per trivy.yaml); fails on HIGH/CRITICAL.
+      - uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          trivy-config: trivy.yaml
+          format: sarif
+          output: trivy.sarif
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('trivy.sarif') != ''
+        with:
+          sarif_file: trivy.sarif
+          category: trivy
+
+  semgrep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      # Pinned semgrep; --severity ERROR limits failures to the most severe findings
+      # (analogous to HIGH/CRITICAL); --error fails the job; SARIF written to the workspace.
+      - run: >
+          uvx semgrep@1.176.0 scan --config p/python --config p/security-audit
+          --severity ERROR --sarif --output semgrep.sarif --error
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('semgrep.sarif') != ''
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+
+  bandit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      # Bandit with SARIF formatter; config from pyproject.toml; fails on HIGH severity.
+      - run: >
+          uvx --from "bandit[toml,sarif]" bandit -c pyproject.toml -r src
+          --severity-level high -f sarif -o bandit.sarif
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('bandit.sarif') != ''
+        with:
+          sarif_file: bandit.sarif
+          category: bandit

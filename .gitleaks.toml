@@ -1,0 +1,6 @@
+# Extend the maintained default ruleset; no allowlists needed (verified: no findings
+# across git history or the working tree, including tests/).
+title = "agent-voice gitleaks config"
+
+[extend]
+useDefault = true

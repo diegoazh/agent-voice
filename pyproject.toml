@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "Local, privacy-first text-to-speech for coding agents, powered by Kokoro."
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
+license = "MIT"
+authors = [{ name = "Diego A. Zapata Häntsch" }]
 dependencies = ["kokoro-onnx==0.6.1"]
 
 [project.scripts]
@@ -26,3 +28,8 @@ markers = ["integration: uses real local resources (Kokoro model files, the herd
 [tool.coverage.run]
 branch = true
 source = ["agent_voice"]
+
+[tool.bandit]
+# Scan application code only; tests legitimately use assert and fake values.
+targets = ["src"]
+exclude_dirs = ["tests", ".venv"]
