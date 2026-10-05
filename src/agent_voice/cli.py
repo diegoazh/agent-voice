@@ -524,3 +524,28 @@ def main(argv=None) -> int:
     if args.command is None:
         return 0
     return COMMANDS[args.command](args)
+
+
+def run(argv=None) -> int:
+    code = main(argv)
+    # agent-voice runs as many short-lived processes (one per spoken reply). When a
+    # process loaded the TTS engine (kokoro_onnx -> onnxruntime), onnxruntime's bundled
+    # telemetry tears down in C++ static destructors at interpreter exit; a lingering
+    # telemetry worker thread then locks an already-destroyed recursive_mutex, throws an
+    # uncaught std::system_error, and aborts — macOS logs a crash report every time.
+    # os._exit() ends the process without running those destructors. It is safe here:
+    # main() has already returned, so every finally/cleanup (e.g. player.release) has run,
+    # and the project registers no atexit handlers. Only hard-exit when the engine was
+    # actually loaded, so non-synthesis commands keep their normal, clean shutdown.
+    #
+    # Flushing must never skip the hard exit below: a closed downstream pipe makes
+    # flush() raise BrokenPipeError, and if that propagated, the onnxruntime teardown
+    # abort this function exists to prevent would happen anyway.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.flush()
+        except Exception:
+            pass
+    if "onnxruntime" in sys.modules:
+        os._exit(code)
+    return code

@@ -2,6 +2,7 @@ import argparse
 import io
 import os
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -1145,3 +1146,83 @@ def test_clipboard_text_returns_none_on_failure(monkeypatch, failure):
 
     monkeypatch.setattr(cli.subprocess, "run", run)
     assert cli._clipboard_text() is None
+
+
+class _Exited(Exception):
+    pass
+
+
+@pytest.fixture
+def hard_exit(monkeypatch):
+    """Replace os._exit so run() can never kill the test process."""
+    calls = []
+
+    def fake_exit(code):
+        calls.append(code)
+        raise _Exited
+
+    monkeypatch.setattr(cli.os, "_exit", fake_exit)
+    return calls
+
+
+def test_run_hard_exits_with_main_code_when_onnxruntime_loaded(hard_exit, monkeypatch):
+    monkeypatch.setitem(sys.modules, "onnxruntime", types.ModuleType("onnxruntime"))
+    monkeypatch.setattr(cli, "main", lambda argv=None: 7)
+    with pytest.raises(_Exited):
+        cli.run([])
+    assert hard_exit == [7]
+
+
+def test_run_flushes_streams_before_hard_exit(hard_exit, monkeypatch):
+    monkeypatch.setitem(sys.modules, "onnxruntime", types.ModuleType("onnxruntime"))
+    monkeypatch.setattr(cli, "main", lambda argv=None: 0)
+    flushed = []
+
+    class Stream:
+        def __init__(self, name):
+            self.name = name
+
+        def flush(self):
+            flushed.append(self.name)
+
+    monkeypatch.setattr(cli.sys, "stdout", Stream("out"))
+    monkeypatch.setattr(cli.sys, "stderr", Stream("err"))
+    with pytest.raises(_Exited):
+        cli.run([])
+    assert flushed == ["out", "err"]
+
+
+def test_run_returns_code_without_hard_exit_when_onnxruntime_absent(hard_exit, monkeypatch):
+    monkeypatch.delitem(sys.modules, "onnxruntime", raising=False)
+    monkeypatch.setattr(cli, "main", lambda argv=None: 3)
+    assert cli.run([]) == 3
+    assert hard_exit == []
+
+
+def test_run_still_hard_exits_when_a_stream_flush_raises(hard_exit, monkeypatch):
+    monkeypatch.setitem(sys.modules, "onnxruntime", types.ModuleType("onnxruntime"))
+    monkeypatch.setattr(cli, "main", lambda argv=None: 5)
+
+    class BrokenStream:
+        def flush(self):
+            raise BrokenPipeError
+
+    monkeypatch.setattr(cli.sys, "stdout", BrokenStream())
+    monkeypatch.setattr(cli.sys, "stderr", BrokenStream())
+    with pytest.raises(_Exited):
+        cli.run([])
+    assert hard_exit == [5]
+
+
+def test_run_forwards_argv_to_main(hard_exit, monkeypatch):
+    monkeypatch.delitem(sys.modules, "onnxruntime", raising=False)
+    received = []
+
+    def fake_main(argv=None):
+        received.append(argv)
+        return 9
+
+    monkeypatch.setattr(cli, "main", fake_main)
+    assert cli.run(["some", "args"]) == 9
+    assert received == [["some", "args"]]
+    assert hard_exit == []

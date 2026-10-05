@@ -1,5 +1,5 @@
 import sys
 
-from agent_voice.cli import main
+from agent_voice.cli import run
 
-sys.exit(main())
+sys.exit(run())
