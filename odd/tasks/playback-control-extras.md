@@ -74,11 +74,16 @@ Out of scope: A2 (hotkey auto-copy via osascript) — deferred as a later option
   - Behavior note: if `ps` can't read state, `pause` defaults to treating the speaker as running (SIGSTOP).
   - Route: delegated writer. Trigger: writer (2+ non-trivial files).
 
-- [ ] **T3 — say-clipboard (`say-clipboard`)**
+- [x] **T3 — say-clipboard (`say-clipboard`)** — DONE, commit `5c8662c`.
   - RED: reads clipboard → speaks; empty/failed clipboard → text-free error exit 1; flag set honored.
-  - Code: `cli._cmd_say_clipboard` + subparser (reuse repeat flag set) + `_clipboard_text()` bounded runner.
-    Hotkey: `ctrl + alt - c : <exe> say-clipboard --detach`.
-  - Tests: `test_cli.py` (clipboard mocked, empty-clipboard error, dispatch), keys test updated.
+  - Code: `cli._cmd_say_clipboard` + `say-clipboard` subparser (`--voice/--speed/--lang/--model/--detach`)
+    + `_clipboard_text()` bounded `pbpaste` runner. Hotkey: `ctrl + alt - c : <exe> say-clipboard --detach`.
+    Empty/`None`/whitespace clipboard → `"agent-voice: nothing in the clipboard to speak"` (stderr, exit 1).
+  - Tests: `test_cli.py` (clipboard mocked, empty/None/whitespace error, flag forwarding, detach argv,
+    `_clipboard_text` paths, a privacy test asserting clipboard text persists to no file), keys test updated.
+  - Evidence: RED 6 failed + 7 errors → full suite 557 passed. Coverage: cli.py 90%, BrPart 0, changed
+    lines covered → floor cleared. Native review: high-risk, consent GRANTED, 4-lens **0 findings,
+    approved, acknowledged (authority burned)**.
   - Route: delegated writer. Trigger: writer (2+ non-trivial files).
 
 ## Acceptance criteria
@@ -96,7 +101,12 @@ Out of scope: A2 (hotkey auto-copy via osascript) — deferred as a later option
 - 2026-10-04: T1 done, commit `6b12b55`. Parent coverage spot-check confirmed BrPart=0 on changed modules.
 - 2026-10-04: native review of the T1 slice (base-ref 188f3a0, high-risk/process_boundary) — consent GRANTED by Diego, 4-lens review (risk/resilience/readability/reliability), **0 findings, approved, acknowledged (authority burned)**. Reviewed boundary advances to the T1 slice tip.
 - 2026-10-04: T2 done, commit `98cb795`. Native review of the T2 slice (base-ref 7868183, high-risk) — consent GRANTED, 4-lens **0 findings, approved, acknowledged (authority burned)**. Boundary advances to the T2 slice tip.
+- 2026-10-04: T3 done, commit `5c8662c`. Native review of the T3 slice (base-ref 33ab227, high-risk) — consent GRANTED, 4-lens **0 findings, approved, acknowledged (authority burned)**.
+
+## Status: FEATURE COMPLETE (local)
+
+All three tasks implemented, TDD-verified, independently reviewed (0 findings each). Full suite `uv run pytest` 557 passed. Branch `feat/playback-controls` is LOCAL ONLY — push / PR / merge remain Diego's decisions (delivery strategy `ask-on-risk`).
 
 ## Next step
 
-Delegate T3 (say-clipboard) under strict TDD. New review base-ref = T2 slice tip.
+Delivery decision (push + PR). Deferred follow-up: A2 (hotkey auto-copy via osascript).
