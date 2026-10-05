@@ -30,6 +30,25 @@ _INLINE_CODE = re.compile(r"`[^`\n]+`")
 MAX_IDENTIFIER_CHARS = 40
 _IDENTIFIER = re.compile(r"[\w.\-]+(?:\(\))?")
 _SLASH_PAIR = re.compile(r"[^\W\d_]+/[^\W\d_]+")
+# Short spec-like code (version pins, comparisons, "a/b" pairs) is read aloud:
+# only word chars, digits, ".", "-", "/", spaces and comparison operators.
+MAX_SPOKEN_CODE_CHARS = 48
+_SPOKEN_CODE = re.compile(r"[\w./\- <>=!~\u2265\u2264]+")
+_SPEAKABLE = re.compile(r"[^\W_]|[<>=\u2265\u2264]")
+_CODE_OPERATORS = re.compile(r"==|!=|>=|<=|~=|\u2265|\u2264|>|<|=|/")
+_OPERATOR_WORDS = {
+    "==": " igual a ",
+    "!=": " distinto de ",
+    ">=": " mayor o igual que ",
+    "<=": " menor o igual que ",
+    "~=": " compatible con ",
+    "\u2265": " mayor o igual que ",
+    "\u2264": " menor o igual que ",
+    ">": " mayor que ",
+    "<": " menor que ",
+    "=": " igual a ",
+    "/": " barra ",
+}
 _SENTENCE_BREAK = re.compile(rf"[{re.escape(_SENTENCE_END)}][{re.escape(_CLOSERS)}]*\s")
 _IMAGE = re.compile(rf"!\[([^\]\n]{{0,{_SPAN}}})\]\([^)\n]{{0,{_SPAN}}}\)")
 _HTML_TAG = re.compile(rf"</?[A-Za-z][^>\n]{{0,{_SPAN}}}>")
@@ -118,6 +137,18 @@ def _speak_identifier(token: str) -> str:
     return " ".join(token.split())
 
 
+def _speak_code(body: str) -> str:
+    """Speak short spec-like code or paths.
+
+    Outer slashes are dropped (`shared/` -> "shared"), operators and inner
+    slashes become Spanish words, then "." -> " punto ", "_" and "-" -> " ".
+    """
+    body = body.removeprefix("/").removesuffix("/")
+    spoken = _CODE_OPERATORS.sub(lambda m: _OPERATOR_WORDS[m.group(0)], body)
+    spoken = spoken.replace(".", " punto ").replace("_", " ").replace("-", " ")
+    return " ".join(spoken.split())
+
+
 def _inline_code(line: str) -> str:
     """Replace each inline code span by what is worth saying aloud.
 
@@ -125,7 +156,11 @@ def _inline_code(line: str) -> str:
       MAX_IDENTIFIER_CHARS): spoken without symbols, e.g. `round()` -> "round",
       `ROUND_HALF_UP` -> "ROUND HALF UP", `kokoro-onnx` -> "kokoro onnx",
       `cli.py` -> "cli punto py". A bare two-word `y/o` is read as written.
-    - URL or path (per the prose heuristics): the link placeholder.
+    - URL: the link placeholder.
+    - Short spec-like code and paths (version pins, comparisons, "a/b" pairs,
+      `core/types.py`; at most MAX_SPOKEN_CODE_CHARS): read aloud with operators
+      and separators as words, e.g. `>=3.15` -> "mayor o igual que 3 punto 15".
+    - Other paths (long, `C:\\x`, `~/x`, `file.py:7`): the link placeholder.
     - Anything else is real code: the code placeholder, at most once per
       sentence of the line; further real-code spans in it are dropped.
     """
@@ -143,6 +178,12 @@ def _inline_code(line: str) -> str:
                 return body
             if _IDENTIFIER.fullmatch(body) and any(ch.isalnum() for ch in body):
                 return _speak_identifier(body)
+        if len(body) <= MAX_SPOKEN_CODE_CHARS and _SPOKEN_CODE.fullmatch(body):
+            spoken = _speak_code(body)
+            # Dots/dashes/slashes alone ("...", "--") and unmapped "~" (home paths)
+            # are not speech; a lone operator ("==") is.
+            if spoken and _SPEAKABLE.search(body) and "~" not in spoken:
+                return spoken
         if _PATH.search(body):
             return LINK_INLINE
         if state["has_code"]:

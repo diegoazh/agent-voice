@@ -1,6 +1,6 @@
 import pytest
 
-from agent_voice.text import DEFAULT_MAX_CHARS, chunks, clean
+from agent_voice.text import DEFAULT_MAX_CHARS, MAX_SPOKEN_CODE_CHARS, chunks, clean
 
 CODE = "Ver el código en el texto."
 LINK = "ver el link en el texto"
@@ -29,7 +29,7 @@ INLINE = "ver el código en el texto"
 
 
 def test_real_inline_code_becomes_inline_placeholder():
-    assert clean("Usá `x = 1` acá.") == f"Usá {INLINE} acá."
+    assert clean("Usá `x = [1]` acá.") == f"Usá {INLINE} acá."
 
 
 @pytest.mark.parametrize(
@@ -54,26 +54,87 @@ def test_short_identifier_is_spoken_without_symbols(span, spoken):
 
 @pytest.mark.parametrize(
     "span",
-    ["a + b", "foo(x)", "foo(a, b)", "x" * 60, "a=b", "'hi'", "[1]", "--", "...", "a b", "foo()()"],
+    ["a + b", "foo(x)", "foo(a, b)", "x" * 60, "'hi'", "[1]", "--", "...", "foo()()"],
 )
 def test_non_identifier_spans_are_real_code(span):
     assert clean(f"Usá `{span}` acá.") == f"Usá {INLINE} acá."
 
 
-def test_identifier_length_limit_is_forty_chars():
+def test_identifier_length_limit_is_forty_chars_then_spoken_code_to_48():
     assert clean(f"Usá `{'x' * 40}` acá.") == f"Usá {'x' * 40} acá."
-    assert clean(f"Usá `{'x' * 41}` acá.") == f"Usá {INLINE} acá."
+    assert clean(f"Usá `{'x' * 48}` acá.") == f"Usá {'x' * 48} acá."
+    assert clean(f"Usá `{'x' * 49}` acá.") == f"Usá {INLINE} acá."
 
 
 @pytest.mark.parametrize(
-    "span", ["src/payments/round.py:42", "~/.claude/settings.json", "https://x.dev", "tests/a.py", "main.py:7"]
+    "span", ["src/payments/round.py:42", "~/.claude/settings.json", "https://x.dev", "main.py:7", "C:\\x\\y.txt"]
 )
-def test_path_or_url_in_backticks_becomes_link_placeholder(span):
+def test_unspeakable_path_or_url_in_backticks_becomes_link_placeholder(span):
     assert clean(f"Mirá `{span}` ya.") == f"Mirá {LINK} ya."
 
 
+@pytest.mark.parametrize(
+    ("span", "spoken"),
+    [
+        ("<23", "menor que 23"),
+        ("==", "igual a"),
+        ("keras ≥3.15", "keras mayor o igual que 3 punto 15"),
+        ("boto3/botocore", "boto3 barra botocore"),
+        ("pyarrow 24", "pyarrow 24"),
+        ("s3fs/fsspec", "s3fs barra fsspec"),
+        (">=2.0", "mayor o igual que 2 punto 0"),
+        ("<=2.0", "menor o igual que 2 punto 0"),
+        ("≤4", "menor o igual que 4"),
+        ("!=1", "distinto de 1"),
+        ("~=1.4", "compatible con 1 punto 4"),
+        ("a=b", "a igual a b"),
+        ("a > b", "a mayor que b"),
+        ("shared/", "shared"),
+        ("core/", "core"),
+        ("/core", "core"),
+        ("core/types.py", "core barra types punto py"),
+        ("helpers/job_cli.py", "helpers barra job cli punto py"),
+        ("scripts/debug_alerts.py", "scripts barra debug alerts punto py"),
+        ("src/a/b.py", "src barra a barra b punto py"),
+    ],
+)
+def test_short_spec_like_code_is_spoken_with_operator_words(span, spoken):
+    assert clean(f"Usá `{span}` acá.") == f"Usá {spoken} acá."
+
+
+def test_spoken_code_does_not_use_the_real_code_budget():
+    assert clean("Con `<23` y `a + b` y `>=1`.") == f"Con menor que 23 y {INLINE} y mayor o igual que 1."
+
+
+def test_spoken_code_length_limit_is_48_chars():
+    assert clean(f"Usá `{'a ' * 24}` acá.") != f"Usá {INLINE} acá."
+    assert clean(f"Usá `{'a ' * 25}b` acá.") == f"Usá {INLINE} acá."
+
+
+@pytest.mark.parametrize("span", ["foo(x, y)", "a[0]", "a[0] = 1", "x = [1, 2]"])
+def test_code_with_brackets_or_commas_stays_placeholder(span):
+    assert clean(f"Mirá `{span}` acá.") == f"Mirá {INLINE} acá."
+
+
+def test_identifier_and_path_regressions_unchanged():
+    assert clean("`pyproject.toml`") == "pyproject punto toml"
+    assert clean("`openmeteo-sdk`") == "openmeteo sdk"
+    assert clean("`round()`") == "round"
+    assert clean("Mirá `src/a/b.py` y `https://x.dev`.") == f"Mirá src barra a barra b punto py y {LINK}."
+    assert clean("mover `shared/` ahora") == "mover shared ahora"
+    assert clean("`https://example.com/x`") == LINK
+
+
+def test_long_path_over_spoken_limit_is_not_read():
+    path = "/".join(["segment"] * 8) + "/file.py"
+    assert len(path) > MAX_SPOKEN_CODE_CHARS
+    out = clean(f"Mirá `{path}` ya.")
+    assert out == f"Mirá {LINK} ya."
+    assert "barra" not in out
+
+
 def test_second_real_code_in_sentence_is_dropped():
-    assert clean("Usá `x = foo(a, b) + 1` y después `y = 2`.") == f"Usá {INLINE} y después."
+    assert clean("Usá `x = foo(a, b) + 1` y después `y = bar(2)`.") == f"Usá {INLINE} y después."
 
 
 def test_code_placeholder_limit_resets_each_sentence():
@@ -82,7 +143,7 @@ def test_code_placeholder_limit_resets_each_sentence():
 
 def test_identifiers_and_links_do_not_count_toward_code_limit():
     assert clean("Con `round()` y `a + b` y `src/a.py` y `c + d`.") == (
-        f"Con round y {INLINE} y {LINK} y."
+        f"Con round y {INLINE} y src barra a punto py y."
     )
 
 
@@ -93,7 +154,7 @@ def test_realistic_reply_sample():
     )
     assert clean(text) == (
         f"El problema estaba en {LINK}: el redondeo usaba round en vez de Decimal. "
-        f"Agregué tests en {LINK}."
+        "Agregué tests en tests barra test round punto py."
     )
 
 
