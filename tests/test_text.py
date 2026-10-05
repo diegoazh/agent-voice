@@ -510,3 +510,54 @@ def test_bold_span_with_an_autolink_leaves_no_asterisks():
     out = clean("**<https://example.com>** fin")
     assert "*" not in out
     assert _text.LINK_INLINE in out
+
+
+def _over_long_span() -> str:
+    return "palabra " * (_text._SPAN // 8 + 20)
+
+
+def test_strikethrough_longer_than_span_leaves_no_tildes():
+    long = _over_long_span()
+    assert len(long) > _text._SPAN
+    out = clean(f"~~{long}~~")
+    assert "~~" not in out
+    assert "palabra" in out
+
+
+def test_bold_longer_than_span_leaves_no_asterisks():
+    long = _over_long_span()
+    assert len(long) > _text._SPAN
+    out = clean(f"**{long}**")
+    assert "*" not in out
+    assert "palabra" in out
+
+
+def test_short_strikethrough_and_bold_still_unwrap():
+    out = clean("lo ~~viejo~~ y **negrita**")
+    assert "viejo" in out and "negrita" in out
+    assert "~" not in out and "*" not in out
+
+
+def test_home_relative_path_becomes_link_placeholder():
+    assert _text.LINK_INLINE in clean("ver ~/configuración ahora")
+
+
+def test_single_tilde_not_in_path_survives_marker_cleanup():
+    approx = clean("aprox ~5 dolares")
+    assert "~" in approx
+    assert "aprox" in approx and "5" in approx and "dolares" in approx
+    spaced = clean("esto ~ eso")
+    assert "~" in spaced
+    assert "esto" in spaced and "eso" in spaced
+
+
+def test_emoji_inside_bold_leaves_no_asterisks():
+    out = clean("**🎯 Criterios de aceptación**")
+    assert "*" not in out
+    assert "Criterios de aceptación" in out
+
+
+def test_emoji_before_bold_leaves_no_asterisks():
+    out = clean("🎯 **Criterios de aceptación**")
+    assert "*" not in out
+    assert "Criterios de aceptación" in out

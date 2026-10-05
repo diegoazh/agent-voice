@@ -40,6 +40,7 @@ _EMPHASIS = (
     re.compile(rf"(?<!\w)_(?=[^\s_])(.{{1,{_SPAN}}}?)(?<=[^\s_])_(?!\w)"),
     re.compile(rf"~~(?=\S)(.{{1,{_SPAN}}}?)(?<=\S)~~"),
 )
+_LEFTOVER_MARKERS = re.compile(r"~~|\*\*")
 _QUOTE_PREFIX = re.compile(r"^\s*(?:>\s?)+")
 _HRULE = re.compile(r"^\s*([-*_])(?:\s*\1){2,}\s*$")
 _HEADING = re.compile(r"^\s{0,3}#{1,6}\s+(.*)$")
@@ -159,6 +160,10 @@ def _inline(line: str) -> str:
     # whitespace next to the markers and stop them from matching.
     for pattern in _EMPHASIS:
         line = pattern.sub(r"\1", line)
+    # Spans longer than _SPAN are not unwrapped above, leaving their delimiters in
+    # place; drop leftover bold/strikethrough markers so they are not spoken
+    # (e.g. a long "~~...~~" would otherwise be read as "tilde tilde").
+    line = _LEFTOVER_MARKERS.sub("", line)
     line = _IMAGE.sub(r"\1", line)
     line = _MD_LINK.sub(r"\1", line)
     line = _AUTOLINK.sub(LINK_INLINE, line)
