@@ -20,8 +20,13 @@ DEFAULTS = {
 }
 
 
-# Spanish voices only; validated statically so no model load is needed.
-VOICES = ("ef_dora", "em_alex", "em_santa")
+# Short language code -> engine language code.
+LANG_CODES = {"es": "es-419", "en": "en-us"}
+# Voices per short language code; validated statically so no model load is needed.
+VOICES_BY_LANG = {"es": ("ef_dora", "em_alex", "em_santa"), "en": ("am_michael",)}
+DEFAULT_VOICE_BY_LANG = {"es": "em_alex", "en": "am_michael"}
+# Union of every language's voices, Spanish first.
+VOICES = tuple(v for voices in VOICES_BY_LANG.values() for v in voices)
 MIN_SPEED = 1.0
 MAX_SPEED = 2.0
 STEP = 0.25

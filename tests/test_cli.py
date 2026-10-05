@@ -752,6 +752,48 @@ def test_toggle_flips_the_flag_and_prints_the_new_state(home, monkeypatch, capsy
     assert capsys.readouterr().out == "enabled\n"
 
 
+# --- lang -----------------------------------------------------------------
+
+
+def test_lang_without_choice_prints_current_and_available(home, capsys):
+    assert main(["lang"]) == 0
+    out = capsys.readouterr().out
+    assert "current: es" in out
+    assert "available: es, en" in out
+
+
+def test_lang_prints_raw_code_when_not_a_known_mapping(home, capsys):
+    config.save({"lang": "fr-fr"})
+    assert main(["lang"]) == 0
+    assert "current: fr-fr" in capsys.readouterr().out
+
+
+def test_lang_en_switches_language_and_voice(home):
+    assert main(["lang", "en"]) == 0
+    cfg = config.load()
+    assert cfg["lang"] == "en-us" and cfg["voice"] == "am_michael"
+
+
+def test_lang_es_restores_spanish_and_default_voice_from_english(home):
+    main(["lang", "en"])
+    assert main(["lang", "es"]) == 0
+    cfg = config.load()
+    assert cfg["lang"] == "es-419" and cfg["voice"] == "em_alex"
+
+
+def test_lang_same_family_keeps_a_chosen_in_language_voice(home):
+    config.save({"voice": "em_santa"})
+    assert main(["lang", "es"]) == 0
+    assert config.load()["voice"] == "em_santa"
+
+
+def test_lang_unknown_choice_exits_two_and_changes_nothing(home, capsys):
+    assert main(["lang", "fr"]) == 2
+    assert "unknown language 'fr'; choose one of: es, en" in capsys.readouterr().err
+    cfg = config.load()
+    assert cfg["lang"] == "es-419" and cfg["voice"] == "em_alex"
+
+
 # --- keys skhd ------------------------------------------------------------
 
 
@@ -765,7 +807,17 @@ def test_keys_skhd_prints_the_exact_block(monkeypatch, capsys):
         "ctrl + alt - v : /opt/av/bin/agent-voice toggle\n"
         "ctrl + alt - p : /opt/av/bin/agent-voice pause\n"
         "ctrl + alt - c : /opt/av/bin/agent-voice say-clipboard --detach\n"
+        "ctrl + alt - right : /opt/av/bin/agent-voice speed up\n"
+        "ctrl + alt - left : /opt/av/bin/agent-voice speed down\n"
     )
+
+
+def test_keys_skhd_binds_speed_up_and_down_to_arrows(monkeypatch, capsys):
+    monkeypatch.setattr("agent_voice.cli._executable", lambda: "/opt/av/bin/agent-voice")
+    assert main(["keys", "skhd"]) == 0
+    out = capsys.readouterr().out
+    assert "ctrl + alt - right : /opt/av/bin/agent-voice speed up" in out
+    assert "ctrl + alt - left : /opt/av/bin/agent-voice speed down" in out
 
 
 def test_keys_skhd_shell_quotes_a_path_with_a_space(monkeypatch, capsys):

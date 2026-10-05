@@ -21,6 +21,8 @@ def _build_parser():
     sub.add_parser("status", help="show settings and whether model files are present")
     voice = sub.add_parser("voice", help="show or set the default voice")
     voice.add_argument("name", nargs="?")
+    lang = sub.add_parser("lang", help="show or switch the reading language (es/en)")
+    lang.add_argument("choice", nargs="?", metavar="es|en")
     model = sub.add_parser("model", help="show or set the default model variant")
     model.add_argument("name", nargs="?")
     speed = sub.add_parser(
@@ -131,6 +133,27 @@ def _cmd_voice(args) -> int:
         return 0
     print(f"current: {config.load()['voice']}")
     print(f"available: {', '.join(VOICES)}")
+    return 0
+
+
+def _cmd_lang(args) -> int:
+    cfg = config.load()
+    if args.choice is None:
+        reverse = {code: short for short, code in config.LANG_CODES.items()}
+        print(f"current: {reverse.get(cfg['lang'], cfg['lang'])}")
+        print(f"available: {', '.join(config.LANG_CODES)}")
+        return 0
+    if args.choice not in config.LANG_CODES:
+        print(
+            f"agent-voice: unknown language {args.choice!r}; "
+            f"choose one of: {', '.join(config.LANG_CODES)}",
+            file=sys.stderr,
+        )
+        return 2
+    changes = {"lang": config.LANG_CODES[args.choice]}
+    if cfg["voice"] not in config.VOICES_BY_LANG[args.choice]:
+        changes["voice"] = config.DEFAULT_VOICE_BY_LANG[args.choice]
+    config.save(changes)
     return 0
 
 
@@ -450,6 +473,8 @@ def _cmd_keys(args) -> int:
     print(f"ctrl + alt - v : {exe} toggle")
     print(f"ctrl + alt - p : {exe} pause")
     print(f"ctrl + alt - c : {exe} say-clipboard --detach")
+    print(f"ctrl + alt - right : {exe} speed up")
+    print(f"ctrl + alt - left : {exe} speed down")
     return 0
 
 
@@ -526,6 +551,7 @@ COMMANDS = {
     "download": _cmd_download,
     "model": _cmd_model,
     "voice": _cmd_voice,
+    "lang": _cmd_lang,
     "speed": _cmd_speed,
     "on": _cmd_on,
     "off": _cmd_off,

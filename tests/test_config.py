@@ -172,3 +172,18 @@ def test_valid_claude_config_dirs_are_kept(tmp_path, capsys):
 def test_pending_max_wait_accepts_non_negative_numbers(tmp_path):
     env = _write(tmp_path, {"pending_max_wait_s": 90.5})
     assert config.load(env)["pending_max_wait_s"] == 90.5
+
+
+def test_voices_is_the_union_of_all_language_voices():
+    assert config.VOICES == ("ef_dora", "em_alex", "em_santa", "am_michael")
+    assert config._VALID["voice"]("am_michael")
+    assert not config._VALID["voice"]("nope")
+
+
+def test_language_mappings_are_consistent():
+    assert config.LANG_CODES == {"es": "es-419", "en": "en-us"}
+    assert set(config.VOICES_BY_LANG) == set(config.LANG_CODES)
+    assert set(config.DEFAULT_VOICE_BY_LANG) == set(config.LANG_CODES)
+    for short, voice in config.DEFAULT_VOICE_BY_LANG.items():
+        assert voice in config.VOICES_BY_LANG[short]
+    assert config.DEFAULT_VOICE_BY_LANG["en"] == "am_michael"
