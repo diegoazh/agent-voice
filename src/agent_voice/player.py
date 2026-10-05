@@ -49,6 +49,35 @@ def process_start_time(pid):
     return out if result.returncode == 0 and out else None
 
 
+def process_state(pid):
+    """State flags of `pid` as reported by `ps` (e.g. "S", "T"), or None if unavailable."""
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "stat=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "LC_ALL": "C"},
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    out = result.stdout.strip()
+    return out if result.returncode == 0 and out else None
+
+
+def _signal(pid, sig, kill=None):
+    """Signal the speaker's process group when it leads its own, else only the pid.
+
+    Detached speakers lead their own group, so the `afplay` child is signalled too. A
+    foreground speaker shares its shell's group: never signal that group.
+    """
+    kill = os.kill if kill is None else kill
+    if os.getpgid(pid) == pid:
+        os.killpg(pid, sig)
+    else:
+        kill(pid, sig)
+
+
 def _read_record(directory, pid_file=PID_FILE):
     """Return (pid, start_time) from the PID file; either may be None."""
     try:
@@ -78,6 +107,10 @@ def _terminate_previous(directory, start_time, pid_file=PID_FILE):
     if not _is_previous_speaker(pid, stored_start, start_time):
         return False
     try:
+        _signal(pid, signal.SIGCONT)  # a paused speaker ignores SIGTERM until continued
+    except OSError:
+        pass
+    try:
         os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
         return True
@@ -98,6 +131,22 @@ def stop(directory=None, *, start_time=None, pid_file=PID_FILE):
     if pid is not None and not _is_previous_speaker(pid, stored_start, start_time):
         (directory / pid_file).unlink(missing_ok=True)
     return stopped
+
+
+def pause(directory=None, *, start_time=None, state=None, kill=None, pid_file=PID_FILE):
+    """Toggle pause on the current speaker. Returns True if a speaker was signalled."""
+    directory = runtime_dir() if directory is None else Path(directory)
+    start_time = process_start_time if start_time is None else start_time
+    state = process_state if state is None else state
+    pid, stored_start = _read_record(directory, pid_file)
+    if not _is_previous_speaker(pid, stored_start, start_time):
+        return False
+    paused = (state(pid) or "").startswith("T")
+    try:
+        _signal(pid, signal.SIGCONT if paused else signal.SIGSTOP, kill)
+    except OSError:  # gone, or not ours to signal
+        return False
+    return True
 
 
 def _claim(directory, start_time, pid=None, pid_file=PID_FILE, lock_file=LOCK_FILE):

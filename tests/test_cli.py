@@ -51,6 +51,14 @@ def test_stop_command_calls_player_stop(home, monkeypatch):
     assert not (home / "config.json").exists()
 
 
+def test_pause_command_calls_player_pause(home, monkeypatch):
+    calls = []
+    monkeypatch.setattr("agent_voice.player.pause", lambda *a, **k: calls.append(1))
+    assert main(["pause"]) == 0
+    assert calls == [1]
+    assert not (home / "config.json").exists()
+
+
 def test_status_shows_defaults_and_missing_models(home, capsys):
     assert main(["status"]) == 0
     out = capsys.readouterr().out
@@ -706,6 +714,7 @@ def test_keys_skhd_prints_the_exact_block(monkeypatch, capsys):
         "ctrl + alt - q : /opt/av/bin/agent-voice stop\n"
         "ctrl + alt - r : /opt/av/bin/agent-voice repeat --detach\n"
         "ctrl + alt - v : /opt/av/bin/agent-voice toggle\n"
+        "ctrl + alt - p : /opt/av/bin/agent-voice pause\n"
     )
 
 
@@ -715,6 +724,7 @@ def test_keys_skhd_shell_quotes_a_path_with_a_space(monkeypatch, capsys):
     lines = capsys.readouterr().out.splitlines()
     assert lines[1] == "ctrl + alt - q : '/Users/a b/bin/agent-voice' stop"
     assert lines[2] == "ctrl + alt - r : '/Users/a b/bin/agent-voice' repeat --detach"
+    assert lines[4] == "ctrl + alt - p : '/Users/a b/bin/agent-voice' pause"
 
 
 def test_keys_skhd_writes_no_files(home, monkeypatch, tmp_path):

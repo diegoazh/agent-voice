@@ -4,6 +4,7 @@ import stat
 import subprocess
 import sys
 import threading
+import time
 
 import pytest
 
@@ -473,6 +474,190 @@ def test_stop_survives_a_previous_speaker_we_may_not_signal(run_dir, monkeypatch
 
     monkeypatch.setattr(player.os, "kill", kill)
     assert player.stop(run_dir, start_time=lambda pid: "some start") is False
+
+
+# --- pause / resume toggle -----------------------------------------------
+
+
+def _fake_signals(monkeypatch, pgid_of=lambda pid: pid):
+    calls = []
+    monkeypatch.setattr(player.os, "getpgid", pgid_of)
+    monkeypatch.setattr(player.os, "killpg", lambda pg, sig: calls.append(("killpg", pg, sig)))
+    monkeypatch.setattr(player.os, "kill", lambda pid, sig: calls.append(("kill", pid, sig)))
+    return calls
+
+
+def _speaker(monkeypatch, run_dir, pid=4242):
+    run_dir.mkdir(mode=0o700, exist_ok=True)
+    _pid_file(run_dir).write_text(f"{pid}\nsome start")
+    monkeypatch.setattr(player, "_alive", lambda p: True)
+
+
+def _alive_once(monkeypatch):
+    """Alive for the verification check only, then gone (so stop() does not wait)."""
+    answers = iter([True])
+    monkeypatch.setattr(player, "_alive", lambda p: next(answers, False))
+
+
+def test_pause_sends_sigstop_to_the_group_when_running(run_dir, monkeypatch):
+    _speaker(monkeypatch, run_dir)
+    calls = _fake_signals(monkeypatch)
+    assert player.pause(
+        run_dir, start_time=lambda pid: "some start", state=lambda pid: "S"
+    ) is True
+    assert calls == [("killpg", 4242, signal.SIGSTOP)]
+
+
+def test_pause_sends_sigcont_when_stopped(run_dir, monkeypatch):
+    _speaker(monkeypatch, run_dir)
+    calls = _fake_signals(monkeypatch)
+    assert player.pause(
+        run_dir, start_time=lambda pid: "some start", state=lambda pid: "T"
+    ) is True
+    assert calls == [("killpg", 4242, signal.SIGCONT)]
+
+
+def test_pause_signals_only_the_pid_when_not_a_group_leader(run_dir, monkeypatch):
+    _speaker(monkeypatch, run_dir)
+    calls = _fake_signals(monkeypatch, pgid_of=lambda pid: 1)
+    player.pause(run_dir, start_time=lambda pid: "some start", state=lambda pid: "S")
+    assert calls == [("kill", 4242, signal.SIGSTOP)]
+
+
+def test_pause_uses_the_injected_kill_for_a_single_pid(run_dir, monkeypatch):
+    _speaker(monkeypatch, run_dir)
+    calls = _fake_signals(monkeypatch, pgid_of=lambda pid: 1)
+    sent = []
+    player.pause(
+        run_dir,
+        start_time=lambda pid: "some start",
+        state=lambda pid: "S",
+        kill=lambda pid, sig: sent.append((pid, sig)),
+    )
+    assert sent == [(4242, signal.SIGSTOP)]
+    assert calls == []
+
+
+def test_pause_without_a_speaker_is_a_noop(run_dir, monkeypatch):
+    calls = _fake_signals(monkeypatch)
+    assert player.pause(run_dir, start_time=lambda pid: "x", state=lambda pid: "S") is False
+    assert calls == []
+
+
+def test_pause_with_an_unverified_pid_never_signals(run_dir, monkeypatch):
+    _speaker(monkeypatch, run_dir)
+    calls = _fake_signals(monkeypatch)
+    assert player.pause(
+        run_dir, start_time=lambda pid: "other start", state=lambda pid: "S"
+    ) is False
+    assert calls == []
+
+
+def test_pause_survives_a_speaker_that_vanished(run_dir, monkeypatch):
+    _speaker(monkeypatch, run_dir)
+    _fake_signals(monkeypatch)
+
+    def gone(pg, sig):
+        raise ProcessLookupError
+
+    monkeypatch.setattr(player.os, "killpg", gone)
+    assert player.pause(
+        run_dir, start_time=lambda pid: "some start", state=lambda pid: "S"
+    ) is False
+
+
+def test_pause_survives_a_speaker_we_may_not_signal(run_dir, monkeypatch):
+    _speaker(monkeypatch, run_dir)
+    _fake_signals(monkeypatch)
+
+    def denied(pg, sig):
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(player.os, "killpg", denied)
+    assert player.pause(
+        run_dir, start_time=lambda pid: "some start", state=lambda pid: "S"
+    ) is False
+
+
+def test_pause_survives_getpgid_failing(run_dir, monkeypatch):
+    _speaker(monkeypatch, run_dir)
+
+    def boom(pid):
+        raise ProcessLookupError
+
+    _fake_signals(monkeypatch, pgid_of=boom)
+    assert player.pause(
+        run_dir, start_time=lambda pid: "some start", state=lambda pid: "S"
+    ) is False
+
+
+def test_stop_continues_a_paused_speaker_before_terminating_it(run_dir, monkeypatch):
+    _speaker(monkeypatch, run_dir)
+    calls = _fake_signals(monkeypatch)
+    _alive_once(monkeypatch)
+    player.stop(run_dir, start_time=lambda pid: "some start")
+    assert calls[0] == ("killpg", 4242, signal.SIGCONT)
+    assert ("kill", 4242, signal.SIGTERM) in calls
+    assert calls.index(("killpg", 4242, signal.SIGCONT)) < calls.index(
+        ("kill", 4242, signal.SIGTERM)
+    )
+
+
+def test_stop_continues_only_the_pid_when_not_a_group_leader(run_dir, monkeypatch):
+    _speaker(monkeypatch, run_dir)
+    calls = _fake_signals(monkeypatch, pgid_of=lambda pid: 1)
+    _alive_once(monkeypatch)
+    player.stop(run_dir, start_time=lambda pid: "some start")
+    assert calls[:2] == [("kill", 4242, signal.SIGCONT), ("kill", 4242, signal.SIGTERM)]
+
+
+def test_stop_still_terminates_when_the_unfreeze_fails(run_dir, monkeypatch):
+    _speaker(monkeypatch, run_dir)
+    calls = _fake_signals(monkeypatch)
+
+    def boom(pid):
+        raise ProcessLookupError
+
+    monkeypatch.setattr(player.os, "getpgid", boom)
+    _alive_once(monkeypatch)
+    player.stop(run_dir, start_time=lambda pid: "some start")
+    assert calls == [("kill", 4242, signal.SIGTERM)]
+
+
+def test_is_stopped_reads_the_first_state_character(monkeypatch):
+    def fake_run(cmd, **kw):
+        return subprocess.CompletedProcess(cmd, 0, stdout="T+ \n", stderr="")
+
+    monkeypatch.setattr(player.subprocess, "run", fake_run)
+    assert player.process_state(1) == "T+"
+
+
+@pytest.mark.parametrize("failure", ["oserror", "nonzero"])
+def test_process_state_is_none_when_ps_fails(monkeypatch, failure):
+    def fake_run(cmd, **kw):
+        if failure == "oserror":
+            raise OSError
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+
+    monkeypatch.setattr(player.subprocess, "run", fake_run)
+    assert player.process_state(1) is None
+
+
+def test_pause_toggles_a_real_process_group(run_dir):
+    proc = subprocess.Popen(SLEEPER, start_new_session=True)
+    threading.Thread(target=proc.wait, daemon=True).start()
+    try:
+        _write_identity(run_dir, proc)
+        assert player.pause(run_dir) is True
+        time.sleep(0.3)
+        assert player.process_state(proc.pid).startswith("T")
+        assert player.pause(run_dir) is True
+        time.sleep(0.3)
+        assert not player.process_state(proc.pid).startswith("T")
+        assert player.stop(run_dir) is True
+    finally:
+        if proc.poll() is None:
+            proc.kill()
 
 
 def test_wav_files_are_private(run_dir, tmp_path):

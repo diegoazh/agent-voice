@@ -16,6 +16,7 @@ def _build_parser():
     sub.add_parser("on", help="enable automatic speaking")
     sub.add_parser("off", help="disable automatic speaking and stop playback")
     sub.add_parser("stop", help="stop the current utterance")
+    sub.add_parser("pause", help="pause or resume the current utterance")
     sub.add_parser("toggle", help="flip automatic speaking (turning it off also stops playback)")
     sub.add_parser("status", help="show settings and whether model files are present")
     voice = sub.add_parser("voice", help="show or set the default voice")
@@ -78,6 +79,11 @@ def _cmd_toggle(args) -> int:
 
 def _cmd_stop(args) -> int:
     player.stop()
+    return 0
+
+
+def _cmd_pause(args) -> int:
+    player.pause()
     return 0
 
 
@@ -393,6 +399,7 @@ def _cmd_keys(args) -> int:
     print(f"ctrl + alt - q : {exe} stop")
     print(f"ctrl + alt - r : {exe} repeat --detach")
     print(f"ctrl + alt - v : {exe} toggle")
+    print(f"ctrl + alt - p : {exe} pause")
     return 0
 
 
@@ -471,6 +478,7 @@ COMMANDS = {
     "on": _cmd_on,
     "off": _cmd_off,
     "stop": _cmd_stop,
+    "pause": _cmd_pause,
     "toggle": _cmd_toggle,
     "keys": _cmd_keys,
     "pending-wait": _cmd_pending_wait,
