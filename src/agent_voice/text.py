@@ -402,6 +402,27 @@ def split_blocks(text: str) -> list[str]:
     return [block for block in blocks if block.strip()]
 
 
+def without_fenced_code(text: str) -> str:
+    """Return `text` minus its fenced code blocks (fence lines included).
+
+    Code is never read aloud (it becomes a spoken placeholder), so its keywords
+    must not drive language detection: a block that is only code then carries no
+    signal and keeps the language of the block before it.
+    """
+    out: list[str] = []
+    fence: str | None = None
+    for line in text.split("\n"):
+        match = _FENCE.match(line)
+        if fence is None:
+            if match:
+                fence = match.group(1)
+            else:
+                out.append(line)
+        elif match and match.group(1) == fence:
+            fence = None
+    return "\n".join(out)
+
+
 def _cap(text: str) -> tuple[str, bool]:
     """Apply the hard input caps: each line to MAX_LINE_CHARS, the reply to MAX_REPLY_CHARS.
 
