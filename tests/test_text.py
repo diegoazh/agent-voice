@@ -491,7 +491,7 @@ def _elapsed(fn, *args):
     ids=["heading-spaces", "heading-only-spaces", "star", "under", "bold", "tilde", "image", "link", "html"],
 )
 def test_adversarial_line_is_processed_in_linear_time(line):
-    assert _elapsed(_text._blocks, line) < _SLOW
+    assert _elapsed(_text._blocks, line, _text._VOCAB["es"]) < _SLOW
 
 
 def test_sentence_split_of_closer_runs_is_linear():
@@ -622,3 +622,71 @@ def test_emoji_before_bold_leaves_no_asterisks():
     out = clean("🎯 **Resumen del día**")
     assert "*" not in out
     assert "Resumen del día" in out
+
+
+# ---------------------------------------------------------------------------
+# Language-aware normalization: English chunks must NOT receive Spanish words.
+# Spanish (the default) must stay byte-for-byte identical.
+# ---------------------------------------------------------------------------
+
+import agent_voice.text as _text  # noqa: E402
+
+EN_CODE = "See the code in the text."
+EN_INLINE = "see the code in the text"
+EN_LINK = "see the link in the text"
+EN_TABLE = "See the table in the text."
+
+
+def test_lang_defaults_to_spanish():
+    sample = "Instalá `>=3.15` y mirá `src/a/b.py`."
+    assert clean(sample) == clean(sample, lang="es")
+
+
+def test_english_fenced_block_uses_english_placeholder():
+    assert clean("Intro.\n```python\nprint(1)\n```\nEnd.", lang="en") == f"Intro. {EN_CODE} End."
+
+
+def test_english_real_inline_code_uses_english_placeholder():
+    assert clean("Use `x = [1]` here.", lang="en") == f"Use {EN_INLINE} here."
+
+
+def test_english_identifier_dot_becomes_english_word():
+    assert clean("`cli.py`", lang="en") == "cli dot py"
+    assert clean("`os.path.join()`", lang="en") == "os dot path dot join"
+
+
+def test_english_operator_words_are_english():
+    assert clean("keras `>=3.15`", lang="en") == "keras greater than or equal to 3 dot 15"
+    assert clean("`<=2.0`", lang="en") == "less than or equal to 2 dot 0"
+    assert clean("`~=1.4`", lang="en") == "compatible with 1 dot 4"
+    assert clean("`a == b`", lang="en") == "a equals b"
+    assert clean("`a != b`", lang="en") == "a not equal to b"
+
+
+def test_english_path_slash_becomes_english_word():
+    assert clean("`core/types.py`", lang="en") == "core slash types dot py"
+
+
+def test_english_link_placeholder_is_english():
+    out = clean("See `https://x.dev` now.", lang="en")
+    assert EN_LINK in out
+    assert "link en el texto" not in out
+
+
+def test_english_table_placeholder_is_english():
+    table = "| a | b |\n| - | - |\n| `x=1` | y |"
+    assert clean(table, lang="en") == EN_TABLE
+
+
+def test_english_truncation_notice_is_english():
+    out = clean("word " * 20000, lang="en")
+    assert out.endswith("The rest of the reply is too long.")
+    assert "El resto de la respuesta" not in out
+
+
+def test_english_chunks_split_in_english():
+    out = chunks("Use `x = [1]` here. And `cli.py` too.", lang="en")
+    joined = " ".join(out)
+    assert EN_INLINE in joined
+    assert "cli dot py" in joined
+    assert "código" not in joined and "punto" not in joined

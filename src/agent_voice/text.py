@@ -21,6 +21,16 @@ CODE_SENTENCE = "Ver el código en el texto."
 CODE_INLINE = "ver el código en el texto"
 TABLE_SENTENCE = "Ver la tabla en el texto."
 LINK_INLINE = "ver el link en el texto"
+# English equivalents of the phrases above. Normalization picks one language's
+# phrases per chunk so an English chunk is never read with Spanish words.
+TRUNCATED_NOTICE_EN = "The rest of the reply is too long."
+CODE_SENTENCE_EN = "See the code in the text."
+CODE_INLINE_EN = "see the code in the text"
+TABLE_SENTENCE_EN = "See the table in the text."
+LINK_INLINE_EN = "see the link in the text"
+# Word spoken for "." inside identifiers/paths/versions ("cli.py" -> "cli punto py").
+DOT_WORD = " punto "
+DOT_WORD_EN = " dot "
 
 _SENTENCE_END = ".!?…"
 _TERMINAL = _SENTENCE_END + ":;"
@@ -49,6 +59,48 @@ _OPERATOR_WORDS = {
     "=": " igual a ",
     "/": " barra ",
 }
+_OPERATOR_WORDS_EN = {
+    "==": " equals ",
+    "!=": " not equal to ",
+    ">=": " greater than or equal to ",
+    "<=": " less than or equal to ",
+    "~=": " compatible with ",
+    "\u2265": " greater than or equal to ",
+    "\u2264": " less than or equal to ",
+    ">": " greater than ",
+    "<": " less than ",
+    "=": " equals ",
+    "/": " slash ",
+}
+# Per-language spoken vocabulary. Normalization selects one of these and reads
+# every symbol/placeholder for a chunk through it, so Spanish and English chunks
+# never borrow each other's words. Spanish is the default everywhere.
+_VOCAB = {
+    "es": {
+        "truncated": TRUNCATED_NOTICE,
+        "code_sentence": CODE_SENTENCE,
+        "code_inline": CODE_INLINE,
+        "table_sentence": TABLE_SENTENCE,
+        "link_inline": LINK_INLINE,
+        "dot": DOT_WORD,
+        "operators": _OPERATOR_WORDS,
+    },
+    "en": {
+        "truncated": TRUNCATED_NOTICE_EN,
+        "code_sentence": CODE_SENTENCE_EN,
+        "code_inline": CODE_INLINE_EN,
+        "table_sentence": TABLE_SENTENCE_EN,
+        "link_inline": LINK_INLINE_EN,
+        "dot": DOT_WORD_EN,
+        "operators": _OPERATOR_WORDS_EN,
+    },
+}
+DEFAULT_LANG = "es"
+
+
+def _vocab(lang: str) -> dict:
+    """Return the spoken vocabulary for `lang`, defaulting to Spanish."""
+    return _VOCAB.get(lang, _VOCAB[DEFAULT_LANG])
 _SENTENCE_BREAK = re.compile(rf"[{re.escape(_SENTENCE_END)}][{re.escape(_CLOSERS)}]*\s")
 _IMAGE = re.compile(rf"!\[([^\]\n]{{0,{_SPAN}}})\]\([^)\n]{{0,{_SPAN}}}\)")
 _HTML_TAG = re.compile(rf"</?[A-Za-z][^>\n]{{0,{_SPAN}}}>")
@@ -107,7 +159,7 @@ def _strip_symbols(text: str) -> str:
     )
 
 
-def _replace_fences(text: str) -> str:
+def _replace_fences(text: str, voc: dict) -> str:
     out: list[str] = []
     fence: str | None = None
     for line in text.split("\n"):
@@ -115,7 +167,7 @@ def _replace_fences(text: str) -> str:
         if fence is None:
             if match:
                 fence = match.group(1)
-                out.append(CODE_SENTENCE)
+                out.append(voc["code_sentence"])
             else:
                 out.append(line)
         elif match and match.group(1) == fence:
@@ -123,33 +175,38 @@ def _replace_fences(text: str) -> str:
     return "\n".join(out)
 
 
-def _collapse_repeats(text: str) -> str:
-    for placeholder in (CODE_SENTENCE, TABLE_SENTENCE, LINK_INLINE, CODE_INLINE):
+def _collapse_repeats(text: str, voc: dict) -> str:
+    for placeholder in (
+        voc["code_sentence"],
+        voc["table_sentence"],
+        voc["link_inline"],
+        voc["code_inline"],
+    ):
         pattern = re.compile(rf"(?:{re.escape(placeholder)}\s*)+(?={re.escape(placeholder)})")
         text = pattern.sub("", text)
     return text
 
 
-def _speak_identifier(token: str) -> str:
-    """Speak an identifier: drop "()", dots become " punto ", "_" and "-" become spaces."""
+def _speak_identifier(token: str, voc: dict) -> str:
+    """Speak an identifier: drop "()", dots become the dot word, "_" and "-" become spaces."""
     token = token.removesuffix("()")
-    token = token.replace(".", " punto ").replace("_", " ").replace("-", " ")
+    token = token.replace(".", voc["dot"]).replace("_", " ").replace("-", " ")
     return " ".join(token.split())
 
 
-def _speak_code(body: str) -> str:
+def _speak_code(body: str, voc: dict) -> str:
     """Speak short spec-like code or paths.
 
     Outer slashes are dropped (`shared/` -> "shared"), operators and inner
-    slashes become Spanish words, then "." -> " punto ", "_" and "-" -> " ".
+    slashes become words, then "." -> the dot word, "_" and "-" -> " ".
     """
     body = body.removeprefix("/").removesuffix("/")
-    spoken = _CODE_OPERATORS.sub(lambda m: _OPERATOR_WORDS[m.group(0)], body)
-    spoken = spoken.replace(".", " punto ").replace("_", " ").replace("-", " ")
+    spoken = _CODE_OPERATORS.sub(lambda m: voc["operators"][m.group(0)], body)
+    spoken = spoken.replace(".", voc["dot"]).replace("_", " ").replace("-", " ")
     return " ".join(spoken.split())
 
 
-def _inline_code(line: str) -> str:
+def _inline_code(line: str, voc: dict) -> str:
     """Replace each inline code span by what is worth saying aloud.
 
     - Identifier (letters/digits/"_"/"."/"-", optional trailing "()", at most
@@ -172,31 +229,31 @@ def _inline_code(line: str) -> str:
         state["end"] = match.end()
         body = match.group(0)[1:-1]
         if _URL.search(body):
-            return LINK_INLINE
+            return voc["link_inline"]
         if len(body) <= MAX_IDENTIFIER_CHARS:
             if _SLASH_PAIR.fullmatch(body):
                 return body
             if _IDENTIFIER.fullmatch(body) and any(ch.isalnum() for ch in body):
-                return _speak_identifier(body)
+                return _speak_identifier(body, voc)
         if len(body) <= MAX_SPOKEN_CODE_CHARS and _SPOKEN_CODE.fullmatch(body):
-            spoken = _speak_code(body)
+            spoken = _speak_code(body, voc)
             # Dots/dashes/slashes alone ("...", "--") and unmapped "~" (home paths)
             # are not speech; a lone operator ("==") is.
             if spoken and _SPEAKABLE.search(body) and "~" not in spoken:
                 return spoken
         if _PATH.search(body):
-            return LINK_INLINE
+            return voc["link_inline"]
         if state["has_code"]:
             return ""
         state["has_code"] = True
-        return CODE_INLINE
+        return voc["code_inline"]
 
     return _INLINE_CODE.sub(replace, line)
 
 
-def _inline(line: str) -> str:
+def _inline(line: str, voc: dict) -> str:
     """Clean inline Markdown, links, code and paths of one line."""
-    line = _inline_code(line)
+    line = _inline_code(line, voc)
     # Unwrap emphasis first: removing a SHA/path/URL inside a span would leave
     # whitespace next to the markers and stop them from matching.
     for pattern in _EMPHASIS:
@@ -207,10 +264,10 @@ def _inline(line: str) -> str:
     line = _LEFTOVER_MARKERS.sub("", line)
     line = _IMAGE.sub(r"\1", line)
     line = _MD_LINK.sub(r"\1", line)
-    line = _AUTOLINK.sub(LINK_INLINE, line)
-    line = _URL.sub(LINK_INLINE, line)
+    line = _AUTOLINK.sub(voc["link_inline"], line)
+    line = _URL.sub(voc["link_inline"], line)
     line = _HTML_TAG.sub("", line)
-    line = _PATH.sub(LINK_INLINE, line)
+    line = _PATH.sub(voc["link_inline"], line)
     line = _HASH.sub("", line)
     return line.strip()
 
@@ -248,7 +305,7 @@ def _is_plain_cell(cell: str) -> bool:
     )
 
 
-def _read_table(header: list[str], body: list[list[str]]) -> list[str]:
+def _read_table(header: list[str], body: list[list[str]], voc: dict) -> list[str]:
     """Read a table as one sentence per body row, or the table placeholder.
 
     A table is plain when every cell is plain text (no code, URL or path),
@@ -264,22 +321,22 @@ def _read_table(header: list[str], body: list[list[str]]) -> list[str]:
         or len(body) > MAX_TABLE_ROWS
         or not all(_is_plain_cell(c) for c in cells)
     ):
-        return [TABLE_SENTENCE]
+        return [voc["table_sentence"]]
     sentences: list[str] = []
     for row in body:
         parts = []
         for index, cell in enumerate(row):
-            value = _inline(cell)
+            value = _inline(cell, voc)
             if not value:
                 continue
-            label = _inline(header[index]) if index < len(header) else ""
+            label = _inline(header[index], voc) if index < len(header) else ""
             parts.append(f"{label}: {value}" if label else value)
         if parts:
             sentences.append(_as_sentence(", ".join(parts)))
     return sentences
 
 
-def _blocks(text: str) -> list[str]:
+def _blocks(text: str, voc: dict) -> list[str]:
     """Convert each Markdown line to a speakable line; drop empty ones."""
     lines = text.split("\n")
     out: list[str] = []
@@ -292,7 +349,7 @@ def _blocks(text: str) -> list[str]:
             while i < len(lines) and "|" in lines[i]:
                 body.append(_split_row(lines[i]))
                 i += 1
-            out.extend(_read_table(header, body))
+            out.extend(_read_table(header, body, voc))
             continue
         line = _QUOTE_PREFIX.sub("", lines[i])
         i += 1
@@ -302,11 +359,11 @@ def _blocks(text: str) -> list[str]:
         item = _LIST_ITEM.match(line)
         if heading:
             # Trailing "#" and spaces are stripped here, not in the regex (linear time).
-            line = _as_sentence(_inline(heading.group(1).rstrip().rstrip("#").rstrip()))
+            line = _as_sentence(_inline(heading.group(1).rstrip().rstrip("#").rstrip(), voc))
         elif item:
-            line = _as_sentence(_inline(item.group(1)))
+            line = _as_sentence(_inline(item.group(1), voc))
         else:
-            line = _inline(line)
+            line = _inline(line, voc)
         if any(ch.isalnum() for ch in line):
             out.append(line)
     return out
@@ -322,19 +379,22 @@ def _cap(text: str) -> tuple[str, bool]:
     return "\n".join(line[:MAX_LINE_CHARS] for line in lines), cut
 
 
-def clean(text: str) -> str:
+def clean(text: str, lang: str = DEFAULT_LANG) -> str:
     """Return speakable prose for a Markdown reply, or "" if nothing remains.
 
+    `lang` ("es" or "en", Spanish by default) picks the language of every spoken
+    symbol and placeholder, so an English chunk never borrows Spanish words.
     Input is capped first (MAX_LINE_CHARS per line, MAX_REPLY_CHARS overall); a cut
-    reply ends with TRUNCATED_NOTICE.
+    reply ends with the language's truncation notice.
     """
+    voc = _vocab(lang)
     text, cut = _cap(text.replace("\r\n", "\n"))
-    text = _replace_fences(text)
-    text = " ".join(_blocks(_strip_symbols(text)))
+    text = _replace_fences(text, voc)
+    text = " ".join(_blocks(_strip_symbols(text), voc))
     text = re.sub(r"\s+", " ", text).strip()
     text = _SPACE_BEFORE_PUNCT.sub(r"\1", text)
-    text = _collapse_repeats(text)
-    return f"{text} {TRUNCATED_NOTICE}".strip() if cut else text
+    text = _collapse_repeats(text, voc)
+    return f"{text} {voc['truncated']}".strip() if cut else text
 
 
 def _sentences(text: str) -> list[str]:
@@ -396,20 +456,21 @@ def _hard_split(sentence: str, max_chars: int) -> list[str]:
     return parts
 
 
-def chunks(text: str, max_chars: int = DEFAULT_MAX_CHARS) -> list[str]:
+def chunks(text: str, max_chars: int = DEFAULT_MAX_CHARS, lang: str = DEFAULT_LANG) -> list[str]:
     """Clean `text` and split it into sentence chunks of at most `max_chars`.
 
-    Sentences end at . ! ? … (never inside a ¿...? or ¡...! span). Fragments
-    shorter than MIN_CHUNK_CHARS are merged with the next one (or the previous
-    one at the end) while the result fits. Sentences longer than `max_chars`
-    are cut at the last comma/semicolon, else the last space, else hard-cut.
-    Never returns empty chunks; returns [] when nothing is speakable.
+    `lang` ("es" or "en") is forwarded to `clean` so the spoken words match the
+    chunk's language. Sentences end at . ! ? … (never inside a ¿...? or ¡...!
+    span). Fragments shorter than MIN_CHUNK_CHARS are merged with the next one
+    (or the previous one at the end) while the result fits. Sentences longer
+    than `max_chars` are cut at the last comma/semicolon, else the last space,
+    else hard-cut. Never returns empty chunks; returns [] when nothing is speakable.
     """
     if max_chars < 1:
         raise ValueError("max_chars must be positive")
     pieces = [
         part
-        for sentence in _sentences(clean(text))
+        for sentence in _sentences(clean(text, lang))
         for part in _hard_split(sentence, max_chars)
     ]
     merged: list[str] = []
