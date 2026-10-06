@@ -369,6 +369,39 @@ def _blocks(text: str, voc: dict) -> list[str]:
     return out
 
 
+def split_blocks(text: str) -> list[str]:
+    """Split a Markdown reply into blocks for per-block language detection.
+
+    Blocks are separated by blank lines; a fenced code block (``` or ~~~) is
+    kept whole even when it contains blank lines. Returns the raw block
+    substrings with no cleaning, and drops blocks that are only whitespace.
+    Detection reads these raw blocks, so language-specific spoken words are
+    never injected before a block's language is known.
+    """
+    blocks: list[str] = []
+    current: list[str] = []
+    fence: str | None = None
+    for line in text.replace("\r\n", "\n").split("\n"):
+        match = _FENCE.match(line)
+        if fence is None:
+            if match:
+                fence = match.group(1)
+                current.append(line)
+            elif line.strip() == "":
+                if current:
+                    blocks.append("\n".join(current))
+                    current = []
+            else:
+                current.append(line)
+        else:
+            current.append(line)
+            if match and match.group(1) == fence:
+                fence = None
+    if current:
+        blocks.append("\n".join(current))
+    return [block for block in blocks if block.strip()]
+
+
 def _cap(text: str) -> tuple[str, bool]:
     """Apply the hard input caps: each line to MAX_LINE_CHARS, the reply to MAX_REPLY_CHARS.
 

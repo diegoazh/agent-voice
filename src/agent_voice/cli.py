@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import sys
 
-from agent_voice import __version__, config, focus, herdr, models, player, text, waiter
+from agent_voice import __version__, config, focus, herdr, lang, models, player, text, waiter
 
 
 def _build_parser():
@@ -350,16 +350,73 @@ def _speak_text(args, raw: str, cfg: dict, always: bool = False) -> int:
         player.release()
 
 
+def _short_lang(code):
+    """Map a full engine lang code (es-419) to its short code (es); None if unknown."""
+    for short, full in config.LANG_CODES.items():
+        if full == code:
+            return short
+    return None
+
+
+def _voice_for(detected: str, base_voice: str) -> str:
+    """Keep `base_voice` when it belongs to `detected`, else that language's default."""
+    if base_voice in config.VOICES_BY_LANG.get(detected, ()):
+        return base_voice
+    return config.DEFAULT_VOICE_BY_LANG[detected]
+
+
+def _language_runs(raw: str, previous):
+    """Yield (run_text, short_lang) for consecutive blocks sharing a detected language.
+
+    `previous` seeds the first detection and is carried forward, so a low-signal
+    block keeps the language of the block before it. Consecutive blocks with the
+    same language are joined into one run so their chunks merge as before.
+    """
+    runs: list[list[str]] = []
+    run_langs: list[str] = []
+    for block in text.split_blocks(raw):
+        previous = lang.detect_lang(block, previous)
+        if run_langs and run_langs[-1] == previous:
+            runs[-1].append(block)
+        else:
+            runs.append([block])
+            run_langs.append(previous)
+    for blocks, short in zip(runs, run_langs):
+        yield "\n\n".join(blocks), short
+
+
+def _plan_chunks(args, raw: str, cfg: dict):
+    """Return (chunk_texts, plans) where plans[i] is the (voice, engine_lang) for chunk i.
+
+    With an explicit --lang the whole reply keeps one voice/lang and no detection
+    runs, so existing callers are unchanged. Without --lang, each block's language
+    is detected (seeded from the configured language and carried forward), and each
+    run is normalized and chunked in its own language.
+    """
+    base_voice = args.voice or cfg["voice"]
+    if args.lang is not None:
+        short = _short_lang(args.lang) or text.DEFAULT_LANG
+        chunk_texts = text.chunks(raw, lang=short)
+        return chunk_texts, [(base_voice, args.lang)] * len(chunk_texts)
+    chunk_texts: list[str] = []
+    plans: list[tuple[str, str]] = []
+    for run_text, short in _language_runs(raw, _short_lang(cfg["lang"])):
+        voice = _voice_for(short, base_voice)
+        engine_lang = config.LANG_CODES[short]
+        run_chunks = text.chunks(run_text, lang=short)
+        chunk_texts.extend(run_chunks)
+        plans.extend([(voice, engine_lang)] * len(run_chunks))
+    return chunk_texts, plans
+
+
 def _synthesize_and_play(args, raw: str, cfg: dict) -> int:
-    chunks = text.chunks(raw)
-    if not chunks:
+    chunk_texts, plans = _plan_chunks(args, raw, cfg)
+    if not chunk_texts:
         return 0
     from agent_voice import engine
 
     model = args.model or cfg["model"]
-    voice = args.voice or cfg["voice"]
     speed = cfg["speed"] if args.speed is None else args.speed
-    lang = args.lang or cfg["lang"]
     try:
         model_path, voices_path = models.resolve(model)
     except models.ModelsMissingError:
@@ -369,12 +426,14 @@ def _synthesize_and_play(args, raw: str, cfg: dict) -> int:
         )
         return 0
     eng = engine.Engine(model_path, voices_path)
+    plan_iter = iter(plans)
 
     def synth(chunk):
-        samples, rate = eng.synthesize(chunk, voice=voice, speed=speed, lang=lang)
+        voice, lang_code = next(plan_iter)
+        samples, rate = eng.synthesize(chunk, voice=voice, speed=speed, lang=lang_code)
         return engine.to_wav_bytes(samples, rate)
 
-    player.speak(chunks, synth, play=player.AfplayPlayer(volume=cfg["volume"]))
+    player.speak(chunk_texts, synth, play=player.AfplayPlayer(volume=cfg["volume"]))
     return 0
 
 

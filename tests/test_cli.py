@@ -313,7 +313,7 @@ def test_speak_when_disabled_does_nothing_and_exits_zero(home, spy, monkeypatch,
 def test_speak_with_nothing_speakable_does_not_synthesize(home, spy, monkeypatch):
     config.save({"enabled": True})
     stdin(monkeypatch, "```\ncode only\n```")
-    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [])
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t, **k: [])
     assert main(["speak"]) == 0
     assert spy.speaks == [] and spy.resolved == []
 
@@ -321,7 +321,7 @@ def test_speak_with_nothing_speakable_does_not_synthesize(home, spy, monkeypatch
 def test_speak_plays_with_the_configured_volume(home, spy, monkeypatch):
     config.save({"enabled": True, "volume": 0.7})
     stdin(monkeypatch, "Hola mundo.")
-    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t, **k: [t])
     assert main(["speak"]) == 0
     (kw,) = spy.speak_kwargs
     assert isinstance(kw["play"], AfplayPlayer)
@@ -331,7 +331,7 @@ def test_speak_plays_with_the_configured_volume(home, spy, monkeypatch):
 def test_speak_happy_path_wires_chunks_synth_and_player_with_config(home, spy, monkeypatch):
     config.save({"enabled": True, "voice": "em_santa", "speed": 1.2, "lang": "es-419", "model": "int8"})
     stdin(monkeypatch, "Hola mundo. Adios.")
-    monkeypatch.setattr("agent_voice.text.chunks", lambda t: t.split(". "))
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t, **k: t.split(". "))
     assert main(["speak"]) == 0
     assert spy.resolved == ["int8"]
     assert spy.engines == [("/m.onnx", "/v.bin")]
@@ -344,7 +344,7 @@ def test_speak_happy_path_wires_chunks_synth_and_player_with_config(home, spy, m
 def test_speak_cli_flags_override_config(home, spy, monkeypatch):
     config.save({"enabled": True})
     stdin(monkeypatch, "Hola.")
-    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t, **k: [t])
     argv = ["speak", "--voice", "ef_dora", "--speed", "0.8", "--lang", "es", "--model", "fp16"]
     assert main(argv) == 0
     assert spy.resolved == ["fp16"]
@@ -373,7 +373,7 @@ def test_speak_missing_models_is_swallowed_with_generic_message(home, spy, monke
 def test_speak_swallows_any_exception_without_leaking_text(home, spy, monkeypatch, capsys, stage):
     config.save({"enabled": True})
     stdin(monkeypatch, "SECRETMARKER dice algo.")
-    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t, **k: [t])
 
     def leak(*a, **k):
         raise RuntimeError("SECRETMARKER boom")
@@ -529,7 +529,7 @@ def last(monkeypatch):
 
 def test_repeat_speaks_last_reply_even_when_disabled(home, spy, last, monkeypatch):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", "/cfg")
-    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t, **k: [t])
     assert config.load()["enabled"] is False
     assert main(["repeat"]) == 0
     assert last.calls == [([Path("/cfg")], os.getcwd())]
@@ -539,7 +539,7 @@ def test_repeat_speaks_last_reply_even_when_disabled(home, spy, last, monkeypatc
 
 def test_repeat_config_dirs_and_overrides(home, spy, last, monkeypatch):
     config.save({"voice": "em_santa", "speed": 1.2})
-    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t, **k: [t])
     argv = ["repeat", "--config-dir", "/a", "--config-dir", "/b", "--voice", "ef_dora",
             "--speed", "0.8", "--lang", "es", "--model", "fp16"]
     assert main(argv) == 0
@@ -552,7 +552,7 @@ def test_repeat_config_dirs_and_overrides(home, spy, last, monkeypatch):
 
 def test_repeat_uses_config_defaults_without_overrides(home, spy, last, monkeypatch):
     config.save({"voice": "em_santa", "speed": 1.2, "model": "int8"})
-    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t, **k: [t])
     assert main(["repeat", "--config-dir", "/a"]) == 0
     assert spy.resolved == ["int8"]
     (_, synth), = spy.speaks
@@ -569,7 +569,7 @@ def test_repeat_nothing_found_exits_one_without_speaking(home, spy, last, capsys
 
 
 def test_repeat_failure_is_text_free(home, spy, last, monkeypatch, capsys):
-    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t, **k: [t])
 
     def boom(*a, **k):
         raise RuntimeError("SECRETMARKER boom")
@@ -590,7 +590,7 @@ def test_repeat_reader_failure_is_text_free(home, spy, last, monkeypatch, capsys
 
 
 def test_repeat_nothing_speakable_is_quiet_success(home, spy, last, monkeypatch):
-    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [])
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t, **k: [])
     assert main(["repeat", "--config-dir", "/a"]) == 0
     assert spy.speaks == []
 
@@ -609,7 +609,7 @@ def test_repeat_detach_hands_text_to_child_that_ignores_disabled_flag(home, spy,
 
 def test_speak_always_flag_speaks_even_when_disabled(home, spy, monkeypatch):
     stdin(monkeypatch, "Hola.")
-    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t, **k: [t])
     assert main(["speak", "--always"]) == 0
     assert len(spy.speaks) == 1
 
@@ -665,7 +665,7 @@ def test_speak_always_detach_forwards_always_to_the_child(home, monkeypatch):
 
 def test_repeat_without_flag_uses_recorded_claude_config_dirs(home, spy, last, monkeypatch):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", "/env")
-    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t, **k: [t])
     config.save({"claude_config_dirs": ["/work", "/personal"]})
     assert main(["repeat"]) == 0
     assert last.calls == [(["/work", "/personal"], os.getcwd())]
@@ -673,7 +673,7 @@ def test_repeat_without_flag_uses_recorded_claude_config_dirs(home, spy, last, m
 
 def test_repeat_flag_overrides_recorded_dirs_and_empty_list_uses_env_default(home, spy, last, monkeypatch):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", "/env")
-    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t, **k: [t])
     config.save({"claude_config_dirs": ["/work"]})
     assert main(["repeat", "--config-dir", "/x"]) == 0
     config.save({"claude_config_dirs": []})
@@ -709,7 +709,7 @@ def focus_env(monkeypatch):
 def test_speak_wait_focus_without_a_detector_speaks_immediately(home, spy, focus_env, monkeypatch):
     config.save({"enabled": True})
     stdin(monkeypatch, "Hola.")
-    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t, **k: [t])
     assert main(["speak", "--wait-focus"]) == 0
     assert [c for c, _ in spy.speaks] == [["Hola."]]
     assert focus_env["sleeps"] == []
@@ -720,7 +720,7 @@ def test_speak_wait_focus_reads_stdin_first_then_speaks_once_focused(
 ):
     config.save({"enabled": True})
     stdin(monkeypatch, "Hola.")
-    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t, **k: [t])
     consumed = []
 
     def probe():
@@ -930,7 +930,7 @@ def test_executable_is_the_running_agent_voice_absolute_path(monkeypatch):
     (["repeat", "2", "--voice", "ef_dora"], 2),
 ])
 def test_repeat_forwards_the_index_to_the_reader(home, spy, last, monkeypatch, argv, nth):
-    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t, **k: [t])
     assert main(argv + ["--config-dir", "/a"]) == 0
     assert last.nths == [nth]
 
@@ -1217,7 +1217,7 @@ def test_speaker_pid_is_registered_before_text_processing_and_released_after(hom
 
     seen = []
 
-    def chunks(raw):
+    def chunks(raw, **k):
         seen.append(player._read_pid(player.runtime_dir()))
         return []
 
@@ -1242,14 +1242,14 @@ def clipboard(monkeypatch):
 
 
 def test_say_clipboard_speaks_the_clipboard_even_when_disabled(home, spy, clipboard, monkeypatch):
-    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t, **k: [t])
     assert main(["say-clipboard"]) == 0
     (chunks, _), = spy.speaks
     assert chunks == ["Hola SECRETMARKER."]
 
 
 def test_say_clipboard_honours_speech_flags(home, spy, clipboard, monkeypatch):
-    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t, **k: [t])
     argv = ["say-clipboard", "--voice", "ef_dora", "--speed", "0.8", "--lang", "es", "--model", "fp16"]
     assert main(argv) == 0
     assert spy.resolved == ["fp16"]
@@ -1280,7 +1280,7 @@ def test_say_clipboard_empty_or_unreadable_is_the_text_free_error(home, spy, cli
 
 
 def test_say_clipboard_never_persists_the_clipboard_text(home, spy, clipboard, monkeypatch):
-    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t, **k: [t])
     assert main(["say-clipboard"]) == 0
     assert all(b"SECRETMARKER" not in p.read_bytes() for p in home.rglob("*") if p.is_file())
 
@@ -1394,3 +1394,81 @@ def test_run_forwards_argv_to_main(hard_exit, monkeypatch):
     assert cli.run(["some", "args"]) == 9
     assert received == [["some", "args"]]
     assert hard_exit == []
+
+
+# ---------------------------------------------------------------------------
+# Per-chunk language detection in the synth path (feat/per-chunk-language).
+# These exercise the real text/lang pipeline (only engine/models/player faked),
+# so they prove end-to-end routing, not just a monkeypatched stub.
+# ---------------------------------------------------------------------------
+
+def _synth_meta(spy):
+    """Run each produced chunk through synth and return the (lang, voice) pairs."""
+    (chunks, synth), = spy.speaks
+    for chunk in chunks:
+        synth(chunk)
+    return [(kw["lang"], kw["voice"]) for _, kw in spy.synth_calls]
+
+
+def test_speak_english_reply_uses_english_voice_and_lang(home, spy, monkeypatch):
+    config.save({"enabled": True})  # defaults are Spanish: em_alex / es-419
+    stdin(monkeypatch, "The function returns the value and prints it to the console.")
+    assert main(["speak"]) == 0
+    meta = _synth_meta(spy)
+    assert meta  # something was spoken
+    assert {lang for lang, _ in meta} == {"en-us"}
+    assert {voice for _, voice in meta} == {"am_michael"}
+
+
+def test_speak_mixed_reply_routes_each_block_to_its_language(home, spy, monkeypatch):
+    config.save({"enabled": True})
+    reply = (
+        "Esta es una explicación en español sobre el cambio que hicimos.\n\n"
+        "This paragraph is written in English and explains the same change to you."
+    )
+    stdin(monkeypatch, reply)
+    assert main(["speak"]) == 0
+    pairs = set(_synth_meta(spy))
+    assert ("es-419", "em_alex") in pairs
+    assert ("en-us", "am_michael") in pairs
+
+
+def test_speak_english_block_is_normalized_with_english_words(home, spy, monkeypatch):
+    config.save({"enabled": True})  # Spanish config, no --lang
+    stdin(monkeypatch, "Install the package with pip. See `core/types.py` for the details.")
+    assert main(["speak"]) == 0
+    (chunks, _), = spy.speaks
+    joined = " ".join(chunks)
+    assert "slash" in joined and "dot" in joined
+    assert "barra" not in joined and "punto" not in joined
+
+
+def test_explicit_lang_forces_whole_reply_without_detection(home, spy, monkeypatch):
+    config.save({"enabled": True})  # Spanish voice em_alex
+    # A clearly Spanish reply, but the caller forces English: no detection must run.
+    stdin(monkeypatch, "Esta es una explicación en español sobre el cambio que hicimos.")
+    assert main(["speak", "--lang", "en-us"]) == 0
+    meta = _synth_meta(spy)
+    assert {lang for lang, _ in meta} == {"en-us"}
+    assert {voice for _, voice in meta} == {"em_alex"}
+
+
+def test_config_english_lang_seeds_english_for_low_signal_reply(home, spy, monkeypatch):
+    config.save({"enabled": True, "lang": "en-us", "voice": "am_michael"})
+    stdin(monkeypatch, "12345 67890.")  # no language signal: must fall back to the seed
+    assert main(["speak"]) == 0
+    meta = _synth_meta(spy)
+    assert {lang for lang, _ in meta} == {"en-us"}
+    assert {voice for _, voice in meta} == {"am_michael"}
+
+
+def test_detection_carries_previous_language_into_low_signal_block(home, spy, monkeypatch):
+    config.save({"enabled": True})  # seed is Spanish
+    reply = (
+        "This is clearly an English paragraph about the new feature we added.\n\n"
+        "12345 67890 99999."  # low signal: must stick to the previous block (English)
+    )
+    stdin(monkeypatch, reply)
+    assert main(["speak"]) == 0
+    meta = _synth_meta(spy)
+    assert {lang for lang, _ in meta} == {"en-us"}
