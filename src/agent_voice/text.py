@@ -423,14 +423,21 @@ def without_fenced_code(text: str) -> str:
     return "\n".join(out)
 
 
-def _cap(text: str) -> tuple[str, bool]:
+def cap_reply(text: str) -> tuple[str, bool]:
     """Apply the hard input caps: each line to MAX_LINE_CHARS, the reply to MAX_REPLY_CHARS.
 
-    Returns (capped text, whether the reply was cut short).
+    Returns (capped text, whether the reply was cut short). A caller that splits
+    a reply before cleaning it applies this once to the whole reply and speaks
+    `truncation_notice` itself, so the cap is not multiplied per piece.
     """
     cut = len(text) > MAX_REPLY_CHARS
     lines = text[:MAX_REPLY_CHARS].split("\n")
     return "\n".join(line[:MAX_LINE_CHARS] for line in lines), cut
+
+
+def truncation_notice(lang: str = DEFAULT_LANG) -> str:
+    """Return the spoken notice that ends a reply cut short by MAX_REPLY_CHARS."""
+    return _vocab(lang)["truncated"]
 
 
 def clean(text: str, lang: str = DEFAULT_LANG) -> str:
@@ -442,7 +449,7 @@ def clean(text: str, lang: str = DEFAULT_LANG) -> str:
     reply ends with the language's truncation notice.
     """
     voc = _vocab(lang)
-    text, cut = _cap(text.replace("\r\n", "\n"))
+    text, cut = cap_reply(text.replace("\r\n", "\n"))
     text = _replace_fences(text, voc)
     text = " ".join(_blocks(_strip_symbols(text), voc))
     text = re.sub(r"\s+", " ", text).strip()

@@ -1513,3 +1513,51 @@ def test_code_block_in_english_reply_stays_english(home, spy, monkeypatch):
     assert text.CODE_SENTENCE not in joined
     meta = _synth_meta(spy)
     assert set(meta) == {("en-us", "am_michael")}
+
+
+def _long_part(sentence, size):
+    """Distinct paragraphs (so nothing collapses as a repeat) totalling > size chars."""
+    paragraphs, total, i = [], 0, 0
+    while total <= size:
+        paragraph = sentence.format(i)
+        paragraphs.append(paragraph)
+        total += len(paragraph) + 2
+        i += 1
+    return "\n\n".join(paragraphs)
+
+
+def _notice_count(chunks):
+    notices = (text.TRUNCATED_NOTICE, text.TRUNCATED_NOTICE_EN)
+    return sum(chunk.count(notice) for chunk in chunks for notice in notices)
+
+
+def test_long_mixed_reply_is_capped_once_with_one_final_notice(home, spy, monkeypatch):
+    config.save({"enabled": True})
+    cap = text.MAX_REPLY_CHARS
+    reply = "\n\n".join(
+        [
+            _long_part("Este es el párrafo {} de la explicación que te doy para que lo leas.", cap),
+            _long_part("This is paragraph {} of the explanation that we wrote for you to read.", cap),
+            _long_part("Y este es el párrafo {} del cierre con los detalles que faltan por ver.", cap),
+        ]
+    )
+    stdin(monkeypatch, reply)
+    assert main(["speak"]) == 0
+    (chunks, _), = spy.speaks
+    assert _notice_count(chunks) == 1
+    assert chunks[-1].endswith((text.TRUNCATED_NOTICE, text.TRUNCATED_NOTICE_EN))
+    # Bounded like the single-cap whole-reply path, not once per language run.
+    single_cap = sum(len(chunk) for chunk in text.chunks(reply, lang="es"))
+    assert sum(len(chunk) for chunk in chunks) <= single_cap + len(text.TRUNCATED_NOTICE_EN) + 1
+
+
+def test_short_mixed_reply_has_no_truncation_notice(home, spy, monkeypatch):
+    config.save({"enabled": True})
+    reply = (
+        "Esta es una explicación en español sobre el cambio que hicimos.\n\n"
+        "This paragraph is written in English and explains the same change to you."
+    )
+    stdin(monkeypatch, reply)
+    assert main(["speak"]) == 0
+    (chunks, _), = spy.speaks
+    assert _notice_count(chunks) == 0
