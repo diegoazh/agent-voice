@@ -393,21 +393,26 @@ def _plan_chunks(args, raw: str, cfg: dict):
     With an explicit --lang the whole reply keeps one voice/lang and no detection
     runs, so existing callers are unchanged. Without --lang, each block's language
     is detected (seeded from the configured language and carried forward), and each
-    run is normalized and chunked in its own language.
+    run is normalized and chunked in its own language. The reply length cap is
+    applied once to the whole reply, not per run, and a cut reply ends with one
+    truncation notice in the language and voice of the last run.
     """
     base_voice = args.voice or cfg["voice"]
     if args.lang is not None:
         short = _short_lang(args.lang) or text.DEFAULT_LANG
         chunk_texts = text.chunks(raw, lang=short)
         return chunk_texts, [(base_voice, args.lang)] * len(chunk_texts)
+    raw, cut = text.cap_reply(raw.replace("\r\n", "\n"))
+    short = _short_lang(cfg["lang"]) or text.DEFAULT_LANG
     chunk_texts: list[str] = []
     plans: list[tuple[str, str]] = []
-    for run_text, short in _language_runs(raw, _short_lang(cfg["lang"])):
-        voice = _voice_for(short, base_voice)
-        engine_lang = config.LANG_CODES[short]
+    for run_text, short in _language_runs(raw, short):
         run_chunks = text.chunks(run_text, lang=short)
         chunk_texts.extend(run_chunks)
-        plans.extend([(voice, engine_lang)] * len(run_chunks))
+        plans.extend([(_voice_for(short, base_voice), config.LANG_CODES[short])] * len(run_chunks))
+    if cut:  # `short` is now the last run's language (or the seed if none ran)
+        chunk_texts.append(text.truncation_notice(short))
+        plans.append((_voice_for(short, base_voice), config.LANG_CODES[short]))
     return chunk_texts, plans
 
 
