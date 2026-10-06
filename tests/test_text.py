@@ -690,3 +690,27 @@ def test_english_chunks_split_in_english():
     assert EN_INLINE in joined
     assert "cli dot py" in joined
     assert "código" not in joined and "punto" not in joined
+
+
+# ---------------------------------------------------------------------------
+# split_blocks: raw blocks for per-block language detection.
+# ---------------------------------------------------------------------------
+
+def test_split_blocks_separates_on_blank_lines_and_ignores_leading_blanks():
+    assert _text.split_blocks("\n\n\nHola.\n\nAdios.\n") == ["Hola.", "Adios."]
+
+
+def test_split_blocks_keeps_a_fenced_code_block_whole_with_inner_blank_lines():
+    assert _text.split_blocks("Intro.\n\n```py\na\n\nb\n```\n\nFin.") == [
+        "Intro.",
+        "```py\na\n\nb\n```",
+        "Fin.",
+    ]
+
+
+def test_split_blocks_keeps_an_unterminated_fence_as_one_block():
+    assert _text.split_blocks("```\nx\ny") == ["```\nx\ny"]
+
+
+def test_split_blocks_on_only_whitespace_is_empty():
+    assert _text.split_blocks("\n   \n\n") == []
