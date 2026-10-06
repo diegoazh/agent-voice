@@ -402,11 +402,28 @@ def test_speak_reports_completion(run_dir, tmp_path):
 
 def test_afplay_player_runs_the_command_with_the_file_path_and_waits(tmp_path):
     marker = tmp_path / "ran"
-    script = "import sys, pathlib; pathlib.Path(sys.argv[1]).write_text(sys.argv[2])"
-    # argv layout: [python, -c, script, <marker>, <path>] -> command carries the marker
+    script = "import sys, pathlib; pathlib.Path(sys.argv[1]).write_text(sys.argv[-1])"
+    # argv layout: [python, -c, script, <marker>, -v, <vol>, <path>] -> command carries the marker
     afplay = player.AfplayPlayer([sys.executable, "-c", script, str(marker)])
     afplay("/abs/file.wav")
     assert marker.read_text() == "/abs/file.wav"
+
+
+def test_afplay_player_passes_volume_flag_before_the_path(monkeypatch):
+    seen = []
+    monkeypatch.setattr(player.subprocess, "Popen", lambda argv, **k: seen.append(argv) or _FakeProc())
+    player.AfplayPlayer(volume=0.8)("/abs/file.wav")
+    assert seen == [["afplay", "-v", "0.8", "/abs/file.wav"]]
+
+
+@pytest.mark.parametrize("volume,text", [(1.0, "1"), (0.0, "0"), (1.5, "1.5"), (2.0, "2")])
+def test_afplay_player_formats_volume_compactly_and_defaults_to_normal(monkeypatch, volume, text):
+    seen = []
+    monkeypatch.setattr(player.subprocess, "Popen", lambda argv, **k: seen.append(argv) or _FakeProc())
+    player.AfplayPlayer(volume=volume)("x.wav")
+    player.AfplayPlayer()("x.wav")
+    assert seen[0][1:3] == ["-v", text]
+    assert seen[1][1:3] == ["-v", "1"]
 
 
 def test_afplay_player_terminate_interrupts_a_running_playback():

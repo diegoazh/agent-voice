@@ -15,6 +15,7 @@ DEFAULTS = {
     "lang": "es-419",
     "model": "fp32",
     "speed": 1.0,
+    "volume": 1.0,
     # Seconds a reply may stay pending for focus before it is dropped; 0 = no limit.
     "pending_max_wait_s": 0,
 }
@@ -30,6 +31,10 @@ VOICES = tuple(v for voices in VOICES_BY_LANG.values() for v in voices)
 MIN_SPEED = 1.0
 MAX_SPEED = 2.0
 STEP = 0.25
+# Playback volume multiplier for afplay -v: 0 = silent, 1 = normal, above 1 amplifies.
+MIN_VOLUME = 0.0
+MAX_VOLUME = 2.0
+VOLUME_STEP = 0.1
 
 _VALID = {
     "voice": lambda v: v in VOICES,
@@ -39,6 +44,12 @@ _VALID = {
         and not isinstance(v, bool)
         and math.isfinite(v)
         and MIN_SPEED <= v <= MAX_SPEED
+    ),
+    "volume": lambda v: (
+        isinstance(v, (int, float))
+        and not isinstance(v, bool)
+        and math.isfinite(v)
+        and MIN_VOLUME <= v <= MAX_VOLUME
     ),
     "pending_max_wait_s": lambda v: (
         isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v >= 0

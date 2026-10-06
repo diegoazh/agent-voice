@@ -9,6 +9,7 @@ import pytest
 
 from agent_voice import cli, config
 from agent_voice.cli import main
+from agent_voice.player import AfplayPlayer
 
 
 def test_version_prints_and_returns_zero(capsys):
@@ -67,6 +68,7 @@ def test_status_shows_defaults_and_missing_models(home, capsys):
     assert "voice: em_alex" in out
     assert "model: fp32" in out
     assert "speed: 1.0" in out
+    assert "volume: 1.0" in out
     assert "lang: es-419" in out
     assert "model files: missing" in out
 
@@ -140,6 +142,50 @@ def test_speed_up_then_down_round_trips(home):
     assert config.load()["speed"] == 1.25
     main(["speed", "down"])
     assert config.load()["speed"] == 1.0
+
+
+def test_volume_without_value_prints_current(home, capsys):
+    assert main(["volume"]) == 0
+    assert capsys.readouterr().out.strip() == "1.0"
+
+
+def test_volume_down_steps_and_persists(home, capsys):
+    capsys.readouterr()
+    assert main(["volume", "down"]) == 0
+    assert capsys.readouterr().out.strip() == "0.9"
+    assert config.load()["volume"] == 0.9
+
+
+def test_volume_down_clamps_at_min_without_float_drift(home):
+    seen = []
+    for _ in range(12):
+        assert main(["volume", "down"]) == 0
+        seen.append(config.load()["volume"])
+    assert seen[:3] == [0.9, 0.8, 0.7]
+    assert seen[-3:] == [0.0, 0.0, 0.0]
+
+
+def test_volume_up_clamps_at_max(home):
+    for _ in range(12):
+        assert main(["volume", "up"]) == 0
+    assert config.load()["volume"] == 2.0
+
+
+def test_volume_up_then_down_round_trips(home):
+    main(["volume", "up"])
+    main(["volume", "up"])
+    main(["volume", "down"])
+    main(["volume", "down"])
+    assert config.load()["volume"] == 1.0
+
+
+@pytest.mark.parametrize("arg", ["sideways", "1.5", "UP", ""])
+def test_volume_invalid_argument_is_rejected_and_not_persisted(home, capsys, arg):
+    main(["volume", "down"])
+    capsys.readouterr()
+    assert main(["volume", arg]) == 2
+    assert "agent-voice: use: agent-voice volume [up|down]" in capsys.readouterr().err
+    assert config.load()["volume"] == 0.9
 
 
 @pytest.mark.parametrize("arg", ["sideways", "1.5", "UP", ""])
@@ -218,6 +264,7 @@ class Spy:
         self.engines = []
         self.synth_calls = []
         self.speaks = []
+        self.speak_kwargs = []
         self.resolved = []
         spy = self
 
@@ -240,6 +287,7 @@ class Spy:
 
         def fake_speak(chunks, synth, **kw):
             spy.speaks.append((list(chunks), synth))
+            spy.speak_kwargs.append(kw)
             return True
 
         monkeypatch.setattr("agent_voice.player.speak", fake_speak)
@@ -268,6 +316,16 @@ def test_speak_with_nothing_speakable_does_not_synthesize(home, spy, monkeypatch
     monkeypatch.setattr("agent_voice.text.chunks", lambda t: [])
     assert main(["speak"]) == 0
     assert spy.speaks == [] and spy.resolved == []
+
+
+def test_speak_plays_with_the_configured_volume(home, spy, monkeypatch):
+    config.save({"enabled": True, "volume": 0.7})
+    stdin(monkeypatch, "Hola mundo.")
+    monkeypatch.setattr("agent_voice.text.chunks", lambda t: [t])
+    assert main(["speak"]) == 0
+    (kw,) = spy.speak_kwargs
+    assert isinstance(kw["play"], AfplayPlayer)
+    assert kw["play"]._volume == 0.7
 
 
 def test_speak_happy_path_wires_chunks_synth_and_player_with_config(home, spy, monkeypatch):
@@ -809,6 +867,8 @@ def test_keys_skhd_prints_the_exact_block(monkeypatch, capsys):
         "ctrl + alt - c : /opt/av/bin/agent-voice say-clipboard --detach\n"
         "ctrl + alt - right : /opt/av/bin/agent-voice speed up\n"
         "ctrl + alt - left : /opt/av/bin/agent-voice speed down\n"
+        "ctrl + alt - up : /opt/av/bin/agent-voice volume up\n"
+        "ctrl + alt - down : /opt/av/bin/agent-voice volume down\n"
     )
 
 
@@ -818,6 +878,14 @@ def test_keys_skhd_binds_speed_up_and_down_to_arrows(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "ctrl + alt - right : /opt/av/bin/agent-voice speed up" in out
     assert "ctrl + alt - left : /opt/av/bin/agent-voice speed down" in out
+
+
+def test_keys_skhd_binds_volume_up_and_down_to_vertical_arrows(monkeypatch, capsys):
+    monkeypatch.setattr("agent_voice.cli._executable", lambda: "/opt/av/bin/agent-voice")
+    assert main(["keys", "skhd"]) == 0
+    out = capsys.readouterr().out
+    assert "ctrl + alt - up : /opt/av/bin/agent-voice volume up" in out
+    assert "ctrl + alt - down : /opt/av/bin/agent-voice volume down" in out
 
 
 def test_keys_skhd_shell_quotes_a_path_with_a_space(monkeypatch, capsys):

@@ -31,6 +31,12 @@ def _build_parser():
         f"({config.MIN_SPEED}-{config.MAX_SPEED})",
     )
     speed.add_argument("direction", nargs="?", metavar="up|down")
+    volume = sub.add_parser(
+        "volume",
+        help=f"show the playback volume, or step it up/down by {config.VOLUME_STEP} "
+        f"({config.MIN_VOLUME}-{config.MAX_VOLUME})",
+    )
+    volume.add_argument("direction", nargs="?", metavar="up|down")
     pending = sub.add_parser("pending-wait", help="show or set how long a reply may wait for focus")
     pending.add_argument("duration", nargs="?", metavar="DURATION|off")
     download = sub.add_parser("download", help="download model files (the only network path)")
@@ -112,6 +118,7 @@ def _cmd_status(args) -> int:
     print(f"voice: {cfg['voice']}")
     print(f"model: {cfg['model']}")
     print(f"speed: {cfg['speed']}")
+    print(f"volume: {cfg['volume']}")
     print(f"lang: {cfg['lang']}")
     print(f"pending wait: {_format_wait(cfg['pending_max_wait_s'])}")
     print(f"model files: {files}")
@@ -193,6 +200,21 @@ def _format_wait(seconds) -> str:
         if seconds % _UNITS[unit] == 0:
             return f"{seconds // _UNITS[unit]}{unit}"
     return f"{seconds}s"
+
+
+def _cmd_volume(args) -> int:
+    current = config.load()["volume"]
+    if args.direction is None:
+        print(current)
+        return 0
+    if args.direction not in ("up", "down"):
+        print("agent-voice: use: agent-voice volume [up|down]", file=sys.stderr)
+        return 2
+    delta = config.VOLUME_STEP if args.direction == "up" else -config.VOLUME_STEP
+    new = round(min(max(current + delta, config.MIN_VOLUME), config.MAX_VOLUME), 2)
+    config.save({"volume": new})
+    print(new)
+    return 0
 
 
 def _cmd_speed(args) -> int:
@@ -352,7 +374,7 @@ def _synthesize_and_play(args, raw: str, cfg: dict) -> int:
         samples, rate = eng.synthesize(chunk, voice=voice, speed=speed, lang=lang)
         return engine.to_wav_bytes(samples, rate)
 
-    player.speak(chunks, synth)
+    player.speak(chunks, synth, play=player.AfplayPlayer(volume=cfg["volume"]))
     return 0
 
 
@@ -475,6 +497,8 @@ def _cmd_keys(args) -> int:
     print(f"ctrl + alt - c : {exe} say-clipboard --detach")
     print(f"ctrl + alt - right : {exe} speed up")
     print(f"ctrl + alt - left : {exe} speed down")
+    print(f"ctrl + alt - up : {exe} volume up")
+    print(f"ctrl + alt - down : {exe} volume down")
     return 0
 
 
@@ -553,6 +577,7 @@ COMMANDS = {
     "voice": _cmd_voice,
     "lang": _cmd_lang,
     "speed": _cmd_speed,
+    "volume": _cmd_volume,
     "on": _cmd_on,
     "off": _cmd_off,
     "stop": _cmd_stop,

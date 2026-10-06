@@ -311,8 +311,9 @@ def speak(chunks, synth, *, play=None, workdir=None, run_dir=None, handle_signal
 class AfplayPlayer:
     """Play WAV files with macOS `afplay`; `terminate()` can interrupt it."""
 
-    def __init__(self, command=("afplay",)):
+    def __init__(self, command=("afplay",), volume=1.0):
         self._command = list(command)
+        self._volume = volume
         # Re-entrant: the SIGTERM handler calls terminate() on the main thread, possibly
         # while that same thread holds the lock inside __call__ (a plain Lock deadlocks).
         self._lock = threading.RLock()
@@ -323,7 +324,9 @@ class AfplayPlayer:
         with self._lock:
             if self._terminated:
                 return
-            proc = self._proc = subprocess.Popen([*self._command, path])
+            proc = self._proc = subprocess.Popen(
+                [*self._command, "-v", f"{self._volume:g}", path]
+            )
             if self._terminated:  # the handler ran during the spawn, before _proc was set
                 proc.terminate()
         proc.wait()

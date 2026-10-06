@@ -25,6 +25,7 @@ def test_load_without_file_returns_defaults(tmp_path):
         "lang": "es-419",
         "model": "fp32",
         "speed": 1.0,
+        "volume": 1.0,
         "pending_max_wait_s": 0,
     }
 
@@ -110,6 +111,11 @@ def _write(tmp_path, data):
         {"speed": 100},
         {"speed": 0.9},
         {"speed": 2.1},
+        {"volume": -0.1},
+        {"volume": 2.1},
+        {"volume": True},
+        {"volume": "loud"},
+        {"volume": float("nan")},
         {"lang": 5},
         {"lang": ""},
         {"pending_max_wait_s": -1},
@@ -133,6 +139,17 @@ def test_speed_bounds_are_inclusive(tmp_path, capsys, speed):
     env = _write(tmp_path, {"speed": speed})
     assert config.load(env)["speed"] == speed
     assert capsys.readouterr().err == ""
+
+
+@pytest.mark.parametrize("volume", [0.0, 0, 1.0, 1, 1.5, 2.0, 2])
+def test_volume_bounds_are_inclusive(tmp_path, capsys, volume):
+    env = _write(tmp_path, {"volume": volume})
+    assert config.load(env)["volume"] == volume
+    assert capsys.readouterr().err == ""
+
+
+def test_volume_range_constants():
+    assert (config.MIN_VOLUME, config.MAX_VOLUME, config.VOLUME_STEP) == (0.0, 2.0, 0.1)
 
 
 def test_speed_range_constants():
