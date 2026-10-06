@@ -714,3 +714,12 @@ def test_split_blocks_keeps_an_unterminated_fence_as_one_block():
 
 def test_split_blocks_on_only_whitespace_is_empty():
     assert _text.split_blocks("\n   \n\n") == []
+
+
+def test_without_fenced_code_keeps_only_prose_lines():
+    block = "Intro line\n```py\nthe code\n~~~\nstill code\n```\nOutro line"
+    assert _text.without_fenced_code(block) == "Intro line\nOutro line"
+
+
+def test_without_fenced_code_on_code_only_block_is_empty():
+    assert _text.without_fenced_code("~~~\nreturn this\n~~~").strip() == ""

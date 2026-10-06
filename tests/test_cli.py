@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_voice import cli, config
+from agent_voice import cli, config, text
 from agent_voice.cli import main
 from agent_voice.player import AfplayPlayer
 
@@ -1472,3 +1472,44 @@ def test_detection_carries_previous_language_into_low_signal_block(home, spy, mo
     assert main(["speak"]) == 0
     meta = _synth_meta(spy)
     assert {lang for lang, _ in meta} == {"en-us"}
+
+
+def test_code_block_in_spanish_reply_inherits_spanish(home, spy, monkeypatch):
+    config.save({"enabled": True})
+    reply = (
+        "Este es el cambio que hicimos en el archivo de configuración.\n\n"
+        "```python\n"
+        "def load(path):\n"
+        "    with open(path) as handle:\n"
+        "        return the_value if this is not None else that\n"
+        "```\n\n"
+        "Con esto ya está listo para que lo pruebes en tu equipo."
+    )
+    stdin(monkeypatch, reply)
+    assert main(["speak"]) == 0
+    (chunks, _), = spy.speaks
+    joined = " ".join(chunks)
+    assert text.CODE_SENTENCE in joined
+    assert text.CODE_SENTENCE_EN not in joined
+    meta = _synth_meta(spy)
+    assert set(meta) == {("es-419", "em_alex")}
+
+
+def test_code_block_in_english_reply_stays_english(home, spy, monkeypatch):
+    config.save({"enabled": True})  # Spanish seed: English must come from the prose
+    reply = (
+        "This is the change we made to the configuration loader.\n\n"
+        "```python\n"
+        "def cargar(ruta):\n"
+        "    return la_ruta\n"
+        "```\n\n"
+        "With this in place you can run the tests on your machine."
+    )
+    stdin(monkeypatch, reply)
+    assert main(["speak"]) == 0
+    (chunks, _), = spy.speaks
+    joined = " ".join(chunks)
+    assert text.CODE_SENTENCE_EN in joined
+    assert text.CODE_SENTENCE not in joined
+    meta = _synth_meta(spy)
+    assert set(meta) == {("en-us", "am_michael")}

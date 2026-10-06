@@ -369,13 +369,15 @@ def _language_runs(raw: str, previous):
     """Yield (run_text, short_lang) for consecutive blocks sharing a detected language.
 
     `previous` seeds the first detection and is carried forward, so a low-signal
-    block keeps the language of the block before it. Consecutive blocks with the
-    same language are joined into one run so their chunks merge as before.
+    block keeps the language of the block before it. Fenced code is ignored for
+    detection (it is not read aloud), so a code block inherits the surrounding
+    language and its spoken placeholder matches. Consecutive blocks with the same
+    language are joined into one run so their chunks merge as before.
     """
     runs: list[list[str]] = []
     run_langs: list[str] = []
     for block in text.split_blocks(raw):
-        previous = lang.detect_lang(block, previous)
+        previous = lang.detect_lang(text.without_fenced_code(block), previous)
         if run_langs and run_langs[-1] == previous:
             runs[-1].append(block)
         else:
