@@ -36,15 +36,17 @@ _SPANISH_WORDS = frozenset(
     }
 )
 
-# Common English function words. "a" and "an" are included; "a" never collides
-# with a Spanish function word, so it is a safe English signal.
+# Common English function words. Words that are also common Spanish words are
+# left out because they would tip Spanish text towards English: "a" (the Spanish
+# preposition, "voy a casa") and "he" (the Spanish auxiliary, "he terminado").
+# "no" is in both sets on purpose: it counts once for each side and cancels out.
 _ENGLISH_WORDS = frozenset(
     {
-        "the", "a", "an", "and", "or", "but", "nor", "so", "yet",
+        "the", "an", "and", "or", "but", "nor", "so", "yet",
         "is", "are", "was", "were", "be", "been", "being", "am",
         "of", "to", "in", "on", "at", "by", "for", "with", "from",
         "that", "this", "these", "those", "it", "its", "as", "if",
-        "you", "your", "we", "our", "they", "their", "he", "she",
+        "you", "your", "we", "our", "they", "their", "she",
         "not", "no", "do", "does", "did", "have", "has", "had",
         "will", "would", "should", "can", "could", "there", "about",
     }

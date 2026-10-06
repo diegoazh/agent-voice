@@ -48,3 +48,37 @@ def test_previous_is_only_a_tiebreaker_not_an_override():
     assert detect_lang("the value is on the list", previous="es") == "en"
     # ...and the reverse.
     assert detect_lang("el valor es de la lista", previous="en") == "es"
+
+
+# "a" is a very common Spanish preposition and "he" a common Spanish auxiliary
+# ("he hecho"), so neither may count as an English signal.
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Voy a ir a la casa a ver a mi madre.",
+        "A ver, no sé si a Juan le va a gustar.",
+        "Ya he terminado.",
+    ],
+)
+@pytest.mark.parametrize("previous", ["es", "en"])
+def test_spanish_with_preposition_a_and_auxiliary_he_is_spanish(text, previous):
+    assert detect_lang(text, previous) == "es"
+
+
+@pytest.mark.parametrize("previous", ["es", None])
+def test_short_spanish_with_only_preposition_a_is_not_english(previous):
+    # No Spanish function word besides "a": it must not tip the chunk to English.
+    assert detect_lang("Fui a casa.", previous) == "es"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "The agent returned the results. I will now check the tests and report back.",
+        "I fixed it.",
+        "Looks good to me.",
+    ],
+)
+@pytest.mark.parametrize("previous", ["es", "en"])
+def test_short_english_replies_stay_english(text, previous):
+    assert detect_lang(text, previous) == "en"
