@@ -813,9 +813,34 @@ def test_split_sentences_handles_a_dot_with_no_word_before_it():
     assert _split(". Hola. Mundo.") == [". ", "Hola. ", "Mundo."]
 
 
-def test_split_sentences_is_linear_on_many_sentence_ends():
-    block = "Ab. " * _text.MAX_REPLY_CHARS  # far beyond the reply cap
-    assert _elapsed(_text.split_sentences, block) < _SLOW
+class _SliceMeter(str):
+    """A str that adds up the length of every slice taken from it."""
+
+    sliced = 0
+
+    def __getitem__(self, key):
+        piece = super().__getitem__(key)
+        if isinstance(key, slice):
+            type(self).sliced += len(piece)
+        return piece
+
+
+def _chars_sliced(monkeypatch, block):
+    """Characters `split_sentences` slices out of its prose: a deterministic cost."""
+    prose_sentences = _text._prose_sentences
+    monkeypatch.setattr(_text, "_prose_sentences", lambda prose: prose_sentences(_SliceMeter(prose)))
+    _SliceMeter.sliced = 0
+    _text.split_sentences(block)
+    return _SliceMeter.sliced
+
+
+def test_split_sentences_is_linear_on_many_sentence_ends(monkeypatch):
+    # Every "." is checked for an abbreviation; slicing the whole prefix there
+    # (an unbounded look-behind) makes the cost quadratic: 4x for 2x the input.
+    small = _chars_sliced(monkeypatch, "Ab. " * 2000)
+    large = _chars_sliced(monkeypatch, "Ab. " * 4000)
+    assert small > 0
+    assert large <= 2.5 * small
 
 
 # A longer fence (````) may wrap a shorter one (```): only a fence of the same
