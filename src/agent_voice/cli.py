@@ -371,7 +371,10 @@ def _language_runs(raw: str, previous):
     Each block is split into sentences (`text.split_sentences`: list items,
     headings, tables and fenced code stay whole) and each sentence's language is
     detected. `previous` seeds the first detection and is carried forward, so a
-    low-signal sentence keeps the language of the one before it. Fenced and
+    low-signal sentence keeps the language of the one before it. Signal-less
+    sentences that open a block ("Done.", "Listo.") take the language of the
+    block's first signalled sentence instead; a block with no signal at all keeps
+    `previous`. Fenced and
     inline code are ignored for detection (they are not read as prose), so code
     inherits the surrounding language. Consecutive sentences with the same
     language are rejoined into one run: sentences of one block are concatenated
@@ -381,8 +384,12 @@ def _language_runs(raw: str, previous):
     runs: list[list[str]] = []
     run_langs: list[str] = []
     for block in text.split_blocks(raw):
-        for index, piece in enumerate(text.split_sentences(block)):
-            previous = lang.detect_lang(text.without_fenced_code(piece), previous)
+        pieces = text.split_sentences(block)
+        # "" as the fallback marks a sentence with no signal (no hits or a tie).
+        signals = [lang.detect_lang(text.without_fenced_code(piece), "") for piece in pieces]
+        previous = next((signal for signal in signals if signal), previous)
+        for index, (piece, signal) in enumerate(zip(pieces, signals)):
+            previous = signal or previous
             if run_langs and run_langs[-1] == previous:
                 if index:  # same block as the run's last piece: rejoin it exactly
                     runs[-1][-1] += piece
