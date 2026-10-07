@@ -94,3 +94,35 @@ def test_inline_code_identifiers_do_not_count_as_english(previous):
 def test_text_that_is_only_inline_code_has_no_signal():
     assert detect_lang("`the_value_is_in_the_list`", "es") == "es"
     assert detect_lang("`el_valor_de_la_lista`", "en") == "en"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "All checks passed.",
+        "Just one more test.",
+        "Which one is next?",
+        "Up now, after merging.",
+    ],
+)
+def test_short_english_without_function_words_is_english(text):
+    assert detect_lang(text, previous="es") == "en"
+
+
+# Realistic Spanish replies, including English tech words, must stay Spanish
+# after the extra English words were added.
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Ya corrí todas las pruebas y pasaron sin errores.",
+        "Hice el setup del proyecto y el backup de la base de datos.",
+        "El timeout ahora es de cinco segundos, más que antes.",
+        "Revisé el layout y el logout; todo quedó bien.",
+        "Agregué un check para el caso en que la lista está vacía.",
+        "Use el comando de nuevo y me avisa si falla.",
+        "Mi idea es mover el pop up al final de la página.",
+        "Cuando termine el build, hago el deploy a producción.",
+    ],
+)
+def test_realistic_spanish_with_tech_words_stays_spanish(text):
+    assert detect_lang(text, previous="en") == "es"
