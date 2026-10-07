@@ -1561,3 +1561,134 @@ def test_short_mixed_reply_has_no_truncation_notice(home, spy, monkeypatch):
     assert main(["speak"]) == 0
     (chunks, _), = spy.speaks
     assert _notice_count(chunks) == 0
+
+
+# ---------------------------------------------------------------------------
+# Per-sentence language detection inside prose blocks. These drive the real
+# planner (`_plan_chunks`) and assert the (voice, engine lang) of every chunk.
+# ---------------------------------------------------------------------------
+
+ES = (config.DEFAULT_VOICE_BY_LANG["es"], config.LANG_CODES["es"])  # ('em_alex', 'es-419')
+EN = (config.DEFAULT_VOICE_BY_LANG["en"], config.LANG_CODES["en"])  # ('am_michael', 'en-us')
+SPANISH_CFG = {"voice": "em_alex", "lang": "es-419"}
+
+
+def _plan(raw, lang=None, cfg=SPANISH_CFG):
+    args = argparse.Namespace(lang=lang, voice=None, speed=None, model=None)
+    return cli._plan_chunks(args, raw, cfg)
+
+
+def _pairs(raw, **kwargs):
+    chunk_texts, plans = _plan(raw, **kwargs)
+    assert len(chunk_texts) == len(plans)
+    return list(zip(chunk_texts, plans))
+
+
+def test_english_sentences_inside_a_spanish_paragraph_get_the_english_voice():
+    raw = (
+        "Revisé el archivo y todo funciona bien. The agent returned the results. "
+        "I will now check the tests and report back."
+    )
+    assert _pairs(raw) == [
+        ("Revisé el archivo y todo funciona bien.", ES),
+        ("The agent returned the results.", EN),
+        ("I will now check the tests and report back.", EN),
+    ]
+
+
+def test_spanish_sentence_inside_an_english_paragraph_gets_the_spanish_voice():
+    raw = (
+        "I checked the logs and everything looks fine. "
+        "Después revisé la configuración y está correcta. "
+        "Then I ran the tests again and they all passed."
+    )
+    assert _pairs(raw) == [
+        ("I checked the logs and everything looks fine.", EN),
+        ("Después revisé la configuración y está correcta.", ES),
+        ("Then I ran the tests again and they all passed.", EN),
+    ]
+
+
+MONOLINGUAL_ES = (
+    "## Resumen del cambio\n\n"
+    "Revisé el archivo de configuración y todo funciona bien. Ok. Listo.\n"
+    "La función `cargar_ruta` ahora devuelve la ruta completa, con la versión 1.25 del\n"
+    "módulo en `cli.py`, por ejemplo.\n\n"
+    "- Primero corrí las pruebas. Todas pasaron sin errores.\n"
+    "- Después revisé el [enlace de la documentación](https://example.com/docs) también.\n\n"
+    "| Archivo | Estado |\n|---|---|\n| cli.py | listo |\n\n"
+    "```python\nprint('the value is in the list')\n```\n\n"
+    "¿Quieres que lo suba? Avísame y lo hago."
+)
+
+MONOLINGUAL_EN = (
+    "## Summary of the change\n\n"
+    "I checked the configuration file and everything works. Ok. Done.\n"
+    "The function `load_path` now returns the full path, e.g. with version 1.25 of the\n"
+    "module in `cli.py`, as you asked.\n\n"
+    "- First I ran the tests. They all passed without errors.\n"
+    "- Then I checked the [docs link](https://example.com/docs) as well.\n\n"
+    "| File | Status |\n|---|---|\n| cli.py | done |\n\n"
+    "```python\nprint('el valor de la lista')\n```\n\n"
+    "Do you want me to push it? Let me know and I will do it."
+)
+
+
+@pytest.mark.parametrize(
+    "raw, short, pair",
+    [(MONOLINGUAL_ES, "es", ES), (MONOLINGUAL_EN, "en", EN)],
+)
+def test_monolingual_reply_is_planned_exactly_as_one_whole_reply(raw, short, pair):
+    chunk_texts, plans = _plan(raw)
+    # Same chunk boundaries, short-fragment merging and spoken text as chunking the
+    # whole reply in its language in one go.
+    assert chunk_texts == text.chunks(raw, lang=short)
+    assert set(plans) == {pair}
+
+
+def test_inline_code_after_an_english_sentence_does_not_make_spanish_english():
+    raw = (
+        "The tests pass now. Llamé a `get_user_by_id` y devolvió el usuario correcto. "
+        "Después llamé a `is_owned_by_the_user` y devolvió verdadero."
+    )
+    assert [plan for _, plan in _pairs(raw)] == [EN, ES, ES]
+
+
+def test_list_item_is_one_unit_and_is_never_split_by_language():
+    # A Spanish and an English sentence inside one list item: the item keeps one
+    # language as a whole (here English, which has more hits).
+    raw = "- Revisé el archivo. The agent returned the results to the caller.\n- Listo."
+    pairs = _pairs(raw)
+    assert len({plan for _, plan in pairs}) == 1
+
+
+def test_table_is_never_split_across_language_runs():
+    raw = (
+        "Esta es la tabla con el estado de los archivos.\n"
+        "| File | Status |\n|---|---|\n| The agent | is done with the tests |"
+    )
+    chunk_texts, _ = _plan(raw)
+    assert text.TABLE_SENTENCE not in " ".join(chunk_texts)  # read, not dropped
+    assert any("File" in chunk and "The agent" in chunk for chunk in chunk_texts)
+
+
+def test_quoted_english_sentence_inside_a_spanish_sentence_stays_spanish():
+    # Known limit (owner decision): no voice switch in the middle of a sentence.
+    raw = 'Te lo digo en español y "The agent returned the results." en inglés.'
+    assert {plan for _, plan in _pairs(raw)} == {ES}
+
+
+def test_explicit_lang_still_forces_one_language_on_a_mixed_paragraph():
+    raw = "Revisé el archivo y todo funciona bien. The agent returned the results."
+    chunk_texts, plans = _plan(raw, lang="en-us")
+    assert chunk_texts == text.chunks(raw, lang="en")
+    assert set(plans) == {("em_alex", "en-us")}
+
+
+def test_long_paragraph_mixing_sentences_is_capped_once_with_one_notice():
+    sentence = "Este es el párrafo {i} del texto. This is sentence {i} of the reply. "
+    raw = "".join(sentence.format(i=i) for i in range(text.MAX_REPLY_CHARS // 40))
+    chunk_texts, plans = _plan(raw)
+    assert _notice_count(chunk_texts) == 1
+    assert chunk_texts[-1] in (text.TRUNCATED_NOTICE, text.TRUNCATED_NOTICE_EN)
+    assert {ES, EN} <= set(plans)

@@ -423,6 +423,109 @@ def without_fenced_code(text: str) -> str:
     return "\n".join(out)
 
 
+# Sentence splitting on RAW Markdown for per-sentence language detection. Unlike
+# `_sentences` (which runs on cleaned prose), this one must never cut through a
+# Markdown construct, so it is deliberately conservative: when in doubt, no split.
+_RAW_LINE = re.compile(r"[^\n]*\n|[^\n]+")
+_RAW_BOUNDARY = re.compile(rf"[{re.escape(_SENTENCE_END)}]+[{re.escape(_CLOSERS)}]*\s+")
+_SENTENCE_OPENERS = "¿¡\"'“‘«("
+# Words that end in "." without ending the sentence ("Dr. Smith", "etc. The").
+_ABBREVIATIONS = frozenset({"mr", "mrs", "ms", "dr", "sr", "sra", "srta", "st", "vs", "etc", "ej", "approx"})
+_ABBREVIATION_LOOKBEHIND = 16
+# Spans a sentence boundary must never fall inside.
+_UNSPLITTABLE = (_INLINE_CODE, _MD_LINK, _IMAGE, _AUTOLINK, _URL)
+
+
+def _is_abbreviation(prose: str, dot: int) -> bool:
+    """True when the "." at `dot` closes an abbreviation, an initial or a number."""
+    # Only a short look-behind: abbreviations are short, and slicing the whole
+    # prefix at every "." would make long replies quadratic.
+    before = prose[max(0, dot - _ABBREVIATION_LOOKBEHIND) : dot].rsplit(None, 1)
+    word = before[-1].lstrip(_SENTENCE_OPENERS).lower() if before else ""
+    parts = word.split(".")
+    # "e.g.", "i.e.", "J." (initials), "2." (numbering) and known abbreviations.
+    return word.isdigit() or word in _ABBREVIATIONS or all(len(p) == 1 and p.isalpha() for p in parts)
+
+
+def _prose_sentences(prose: str) -> list[str]:
+    """Cut raw prose after sentence ends that clearly start a new sentence.
+
+    A cut needs . ! ? or … (plus closers) followed by whitespace and then an
+    uppercase letter (after optional openers such as ¿ or a quote); never inside
+    inline code, a link, an image or a URL, and never after an abbreviation,
+    initial or bare number. Pieces keep their trailing whitespace so they
+    concatenate back to `prose` exactly.
+    """
+    n = len(prose)
+    shielded = bytearray(n)
+    for pattern in _UNSPLITTABLE:
+        for match in pattern.finditer(prose):
+            shielded[match.start() : match.end()] = b"\x01" * (match.end() - match.start())
+    out: list[str] = []
+    start = 0
+    for match in _RAW_BOUNDARY.finditer(prose):
+        end = match.end()
+        nxt = end
+        while nxt < n and prose[nxt] in _SENTENCE_OPENERS:
+            nxt += 1
+        if nxt == n or not prose[nxt].isupper() or shielded[match.start()]:
+            continue
+        if prose[match.start()] == "." and _is_abbreviation(prose, match.start()):
+            continue
+        out.append(prose[start:end])
+        start = end
+    # A cut always leaves a letter after it, so the tail is never empty.
+    out.append(prose[start:])
+    return out
+
+
+def split_sentences(block: str) -> list[str]:
+    """Split a raw Markdown block into pieces for per-sentence language detection.
+
+    The pieces are contiguous and concatenate back to `block` exactly, so pieces
+    that end up in the same language can be rejoined into the original text.
+    Line-based Markdown is never split: a fenced code block, a run of table lines
+    (any line with "|"), a heading and a list item are each one piece. Only the
+    remaining prose lines are cut into sentences (see `_prose_sentences`).
+    """
+    lines = _RAW_LINE.findall(block)
+    pieces: list[str] = []
+    prose: list[str] = []
+
+    def flush() -> None:
+        if prose:
+            pieces.extend(_prose_sentences("".join(prose)))
+            prose.clear()
+
+    i = 0
+    while i < len(lines):
+        fence = _FENCE.match(lines[i])
+        j = i + 1
+        if fence:
+            while j < len(lines) and not _closes_fence(lines[j], fence.group(1)):
+                j += 1
+            j = min(j + 1, len(lines))
+        elif "|" in lines[i]:
+            while j < len(lines) and "|" in lines[j] and not _FENCE.match(lines[j]):
+                j += 1
+        else:
+            bare = _QUOTE_PREFIX.sub("", lines[i])
+            if not (_HEADING.match(bare) or _LIST_ITEM.match(bare)):
+                prose.append(lines[i])
+                i = j
+                continue
+        flush()
+        pieces.append("".join(lines[i:j]))
+        i = j
+    flush()
+    return pieces
+
+
+def _closes_fence(line: str, fence: str) -> bool:
+    match = _FENCE.match(line)
+    return bool(match) and match.group(1) == fence
+
+
 def cap_reply(text: str) -> tuple[str, bool]:
     """Apply the hard input caps: each line to MAX_LINE_CHARS, the reply to MAX_REPLY_CHARS.
 
