@@ -1735,3 +1735,27 @@ def test_short_english_sentence_between_spanish_sentences_gets_the_english_voice
         ("All checks passed.", EN),
         ("Ahora subo el cambio.", ES),
     ]
+
+
+def test_language_switch_inside_a_block_continues_into_the_next_block():
+    raw = (
+        "Revisé el archivo y todo funciona bien. The agent returned the results.\n\n"
+        "Then I ran the tests again. They all passed without errors."
+    )
+    assert _pairs(raw) == [
+        ("Revisé el archivo y todo funciona bien.", ES),
+        ("The agent returned the results.", EN),
+        ("Then I ran the tests again.", EN),
+        ("They all passed without errors.", EN),
+    ]
+
+
+def test_language_runs_join_a_cross_block_run_with_a_blank_line():
+    raw = (
+        "Revisé el archivo y todo funciona bien. The agent returned the results.\n\n"
+        "Then I ran the tests again."
+    )
+    assert list(cli._language_runs(raw, "es")) == [
+        ("Revisé el archivo y todo funciona bien. ", "es"),
+        ("The agent returned the results.\n\nThen I ran the tests again.", "en"),
+    ]
