@@ -816,3 +816,39 @@ def test_split_sentences_handles_a_dot_with_no_word_before_it():
 def test_split_sentences_is_linear_on_many_sentence_ends():
     block = "Ab. " * _text.MAX_REPLY_CHARS  # far beyond the reply cap
     assert _elapsed(_text.split_sentences, block) < _SLOW
+
+
+# A longer fence (````) may wrap a shorter one (```): only a fence of the same
+# character and at least the same length closes it (CommonMark).
+NESTED_FENCE = "````markdown\n```python\nprint('x')\n```\n````\n"
+
+
+def test_split_sentences_does_not_close_a_long_fence_on_a_shorter_one():
+    block = NESTED_FENCE + "After the code. Next sentence."
+    assert _text.split_sentences(block) == [NESTED_FENCE, "After the code. ", "Next sentence."]
+
+
+def test_split_sentences_closes_a_fence_on_a_longer_one():
+    block = "```\ncode\n````\nAfter the code. Next sentence."
+    assert _text.split_sentences(block) == ["```\ncode\n````\n", "After the code. ", "Next sentence."]
+
+
+def test_split_sentences_does_not_close_a_fence_on_the_other_character():
+    block = "```\n~~~\nstill code\n```\nAfter."
+    assert _text.split_sentences(block) == ["```\n~~~\nstill code\n```\n", "After."]
+
+
+def test_without_fenced_code_does_not_close_a_long_fence_on_a_shorter_one():
+    assert _text.without_fenced_code(NESTED_FENCE + "Prose.") == "Prose."
+
+
+def test_split_blocks_does_not_close_a_long_fence_on_a_shorter_one():
+    raw = "````\n```\n\ninner\n```\n````\n\nAfter."
+    assert _text.split_blocks(raw) == ["````\n```\n\ninner\n```\n````", "After."]
+
+
+def test_clean_does_not_read_code_inside_a_long_fence():
+    out = _text.clean(NESTED_FENCE + "Listo.")
+    assert "print" not in out
+    assert out.count(_text.CODE_SENTENCE) == 1
+    assert "Listo." in out
