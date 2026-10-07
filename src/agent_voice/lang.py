@@ -22,6 +22,10 @@ ENGLISH = "en"
 # ("don't", "it's"). Everything else (digits, punctuation, symbols) is a gap.
 _WORD = re.compile(r"[a-záéíóúüñ']+")
 
+# Inline code spans (`like_this`). They are identifiers, not prose: names such as
+# `get_user_by_id` would otherwise add fake English hits ("by").
+_INLINE_CODE = re.compile(r"`[^`\n]+`")
+
 # Common Spanish function words. No accents are needed here because they are
 # matched against the already-lowercased token text, accents included.
 _SPANISH_WORDS = frozenset(
@@ -60,10 +64,11 @@ def detect_lang(text: str, previous: str | None = None) -> str:
     returns the language with more hits. On a tie (including no hits at all)
     the result is `previous`, so a low-signal chunk keeps the language of the
     chunk before it; when `previous` is None the default is Spanish ("es").
+    Inline code spans are ignored: they are identifiers, not prose.
     """
     spanish_hits = 0
     english_hits = 0
-    for token in _WORD.findall(text.lower()):
+    for token in _WORD.findall(_INLINE_CODE.sub(" ", text).lower()):
         if token in _SPANISH_WORDS:
             spanish_hits += 1
         if token in _ENGLISH_WORDS:

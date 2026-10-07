@@ -82,3 +82,15 @@ def test_short_spanish_with_only_preposition_a_is_not_english(previous):
 @pytest.mark.parametrize("previous", ["es", "en"])
 def test_short_english_replies_stay_english(text, previous):
     assert detect_lang(text, previous) == "en"
+
+
+@pytest.mark.parametrize("previous", ["es", "en"])
+def test_inline_code_identifiers_do_not_count_as_english(previous):
+    # `is_owned_by_the_user` holds "is", "by" and "the": inline code is not prose,
+    # so only the Spanish around it may decide.
+    assert detect_lang("Llamé a `is_owned_by_the_user` y devolvió el usuario.", previous) == "es"
+
+
+def test_text_that_is_only_inline_code_has_no_signal():
+    assert detect_lang("`the_value_is_in_the_list`", "es") == "es"
+    assert detect_lang("`el_valor_de_la_lista`", "en") == "en"
