@@ -46,7 +46,8 @@ _SPANISH_WORDS = frozenset(
 # "no" is in both sets on purpose: it counts once for each side and cancels out.
 # The last rows are frequent non-function words that give short replies ("All
 # checks passed.") a signal; none is a Spanish word ("me", "use", "new" and
-# "via" are left out because Spanish text uses them).
+# "via" are left out because Spanish text uses them; "up" and "out" too, because
+# phrasal loanwords such as "push up" or "check out" appear in Spanish lines).
 _ENGLISH_WORDS = frozenset(
     {
         "the", "an", "and", "or", "but", "nor", "so", "yet",
@@ -57,7 +58,7 @@ _ENGLISH_WORDS = frozenset(
         "not", "no", "do", "does", "did", "have", "has", "had",
         "will", "would", "should", "can", "could", "there", "about",
         "all", "now", "just", "here", "what", "which", "when", "where",
-        "then", "than", "into", "out", "up", "my", "who", "how", "why",
+        "then", "than", "into", "my", "who", "how", "why",
         "also", "only", "some", "any", "each", "after", "before", "because", "more",
     }
 )

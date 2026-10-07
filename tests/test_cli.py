@@ -1759,3 +1759,18 @@ def test_language_runs_join_a_cross_block_run_with_a_blank_line():
         ("Revisé el archivo y todo funciona bien. ", "es"),
         ("The agent returned the results.\n\nThen I ran the tests again.", "en"),
     ]
+
+
+# Phrasal loanwords ("push up", "check out") are not English signal on their own:
+# a short Spanish line with no Spanish function word must keep the Spanish voice.
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "Push up listo.",
+        "Check out rápido hecho.",
+        "Revisé el código. Push up listo. Sigo con el deploy.",
+    ],
+)
+def test_spanish_lines_with_phrasal_loanwords_keep_the_spanish_voice(raw):
+    _, plans = _plan(raw)
+    assert plans and set(plans) == {ES}
