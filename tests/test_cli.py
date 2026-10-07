@@ -1685,6 +1685,39 @@ def test_explicit_lang_still_forces_one_language_on_a_mixed_paragraph():
     assert set(plans) == {("em_alex", "en-us")}
 
 
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "Fixed. The parser now handles empty input.",
+        "Sure. I will open the PR.",
+    ],
+)
+def test_signal_less_opener_of_an_english_paragraph_takes_the_next_sentence_language(raw):
+    # The Spanish config seed must not win over the paragraph's own English.
+    assert {plan for _, plan in _pairs(raw)} == {EN}
+
+
+def test_signal_less_opener_of_a_spanish_paragraph_stays_spanish():
+    raw = "Listo. Todas las pruebas pasan sin errores."
+    assert {plan for _, plan in _pairs(raw)} == {ES}
+
+
+def test_signal_less_opener_after_an_english_paragraph_takes_its_own_paragraph_language():
+    raw = "I checked the logs and they are clean.\n\nListo. Todas las pruebas pasan."
+    assert [plan for _, plan in _pairs(raw)] == [EN, ES]
+
+
+def test_paragraph_with_no_signal_at_all_keeps_the_previous_language():
+    raw = "I checked the logs and they are clean.\n\nDone. Tests pass. Ok."
+    assert {plan for _, plan in _pairs(raw)} == {EN}
+
+
+def test_signal_less_sentence_after_a_signalled_one_keeps_carrying_its_language():
+    raw = "Revisé el archivo y todo funciona. Done. The agent returned the results."
+    assert [plan for _, plan in _pairs(raw)] == [ES, EN]
+    assert _pairs(raw)[0][0].endswith("Done.")
+
+
 def test_long_paragraph_mixing_sentences_is_capped_once_with_one_notice():
     sentence = "Este es el párrafo {i} del texto. This is sentence {i} of the reply. "
     raw = "".join(sentence.format(i=i) for i in range(text.MAX_REPLY_CHARS // 40))
