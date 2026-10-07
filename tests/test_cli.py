@@ -1688,6 +1688,7 @@ def test_explicit_lang_still_forces_one_language_on_a_mixed_paragraph():
 @pytest.mark.parametrize(
     "raw",
     [
+        "Done. All 120 tests pass.",
         "Fixed. The parser now handles empty input.",
         "Sure. I will open the PR.",
     ],
@@ -1725,3 +1726,12 @@ def test_long_paragraph_mixing_sentences_is_capped_once_with_one_notice():
     assert _notice_count(chunk_texts) == 1
     assert chunk_texts[-1] in (text.TRUNCATED_NOTICE, text.TRUNCATED_NOTICE_EN)
     assert {ES, EN} <= set(plans)
+
+
+def test_short_english_sentence_between_spanish_sentences_gets_the_english_voice():
+    raw = "Revisé el archivo y corrí las pruebas. All checks passed. Ahora subo el cambio."
+    assert _pairs(raw) == [
+        ("Revisé el archivo y corrí las pruebas.", ES),
+        ("All checks passed.", EN),
+        ("Ahora subo el cambio.", ES),
+    ]

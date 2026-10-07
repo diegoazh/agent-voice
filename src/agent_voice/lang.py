@@ -44,6 +44,9 @@ _SPANISH_WORDS = frozenset(
 # left out because they would tip Spanish text towards English: "a" (the Spanish
 # preposition, "voy a casa") and "he" (the Spanish auxiliary, "he terminado").
 # "no" is in both sets on purpose: it counts once for each side and cancels out.
+# The last rows are frequent non-function words that give short replies ("All
+# checks passed.") a signal; none is a Spanish word ("me", "use", "new" and
+# "via" are left out because Spanish text uses them).
 _ENGLISH_WORDS = frozenset(
     {
         "the", "an", "and", "or", "but", "nor", "so", "yet",
@@ -53,6 +56,9 @@ _ENGLISH_WORDS = frozenset(
         "you", "your", "we", "our", "they", "their", "she",
         "not", "no", "do", "does", "did", "have", "has", "had",
         "will", "would", "should", "can", "could", "there", "about",
+        "all", "now", "just", "here", "what", "which", "when", "where",
+        "then", "than", "into", "out", "up", "my", "who", "how", "why",
+        "also", "only", "some", "any", "each", "after", "before", "because", "more",
     }
 )
 
