@@ -723,3 +723,96 @@ def test_without_fenced_code_keeps_only_prose_lines():
 
 def test_without_fenced_code_on_code_only_block_is_empty():
     assert _text.without_fenced_code("~~~\nreturn this\n~~~").strip() == ""
+
+
+# split_sentences: raw sentence pieces for per-sentence language detection.
+
+
+def _split(block):
+    pieces = _text.split_sentences(block)
+    assert "".join(pieces) == block  # contiguous, lossless pieces
+    return pieces
+
+
+def test_split_sentences_splits_prose_at_sentence_ends():
+    assert _split("Hola mundo. The agent ran! ¿Todo bien? Yes… Fin.") == [
+        "Hola mundo. ",
+        "The agent ran! ",
+        "¿Todo bien? ",
+        "Yes… ",
+        "Fin.",
+    ]
+
+
+def test_split_sentences_keeps_a_sentence_that_spans_lines_whole():
+    assert _split("Uno dos\ntres cuatro. Cinco\nseis.") == ["Uno dos\ntres cuatro. ", "Cinco\nseis."]
+
+
+def test_split_sentences_does_not_split_on_abbreviations_and_file_names():
+    assert _split("Use version 1.25 of the tool.") == ["Use version 1.25 of the tool."]
+    assert _split("Edit cli.py and v1.2.3 now.") == ["Edit cli.py and v1.2.3 now."]
+    assert _split("Use a short name, e.g. Foo or Bar.") == ["Use a short name, e.g. Foo or Bar."]
+    assert _split("Ask Dr. Smith or J. Doe.") == ["Ask Dr. Smith or J. Doe."]
+    assert _split("It ended. then it went on.") == ["It ended. then it went on."]
+    assert _split("Done. - Not a list item.") == ["Done. - Not a list item."]
+    assert _split("Done. 2. Not a list item.") == ["Done. 2. Not a list item."]
+
+
+def test_split_sentences_does_split_after_a_file_name_that_ends_a_sentence():
+    assert _split("I edited cli.py. Then I ran it.") == ["I edited cli.py. ", "Then I ran it."]
+
+
+def test_split_sentences_never_splits_inside_inline_code_links_or_urls():
+    assert _split("Run `make test. Then go` now.") == ["Run `make test. Then go` now."]
+    assert _split("Read [the docs. They help](https://x.io) first.") == [
+        "Read [the docs. They help](https://x.io) first."
+    ]
+    assert _split("Open <https://x.io/a.B> now. Then go.") == ["Open <https://x.io/a.B> now. ", "Then go."]
+
+
+def test_split_sentences_keeps_list_items_and_headings_as_whole_lines():
+    block = "# Título. The title\n- Uno. Two.\n1. Tres. Four.\nTexto. More text."
+    assert _split(block) == [
+        "# Título. The title\n",
+        "- Uno. Two.\n",
+        "1. Tres. Four.\n",
+        "Texto. ",
+        "More text.",
+    ]
+
+
+def test_split_sentences_keeps_quoted_list_items_whole():
+    assert _split("> - Uno. Two.\nTres.") == ["> - Uno. Two.\n", "Tres."]
+
+
+def test_split_sentences_keeps_a_table_whole():
+    block = "Intro. Here.\n| A. B | C |\n|---|---|\n| D. E | F |\nAfter. End."
+    assert _split(block) == [
+        "Intro. ",
+        "Here.\n",
+        "| A. B | C |\n|---|---|\n| D. E | F |\n",
+        "After. ",
+        "End.",
+    ]
+
+
+def test_split_sentences_keeps_fenced_code_whole():
+    block = "Intro. Here.\n```py\na. B\n\nc. D\n```\nAfter. End."
+    assert _split(block) == ["Intro. ", "Here.\n", "```py\na. B\n\nc. D\n```\n", "After. ", "End."]
+
+
+def test_split_sentences_keeps_an_unterminated_fence_whole():
+    assert _split("Intro.\n```\na. B") == ["Intro.\n", "```\na. B"]
+
+
+def test_split_sentences_on_empty_text_is_empty():
+    assert _text.split_sentences("") == []
+
+
+def test_split_sentences_handles_a_dot_with_no_word_before_it():
+    assert _split(". Hola. Mundo.") == [". ", "Hola. ", "Mundo."]
+
+
+def test_split_sentences_is_linear_on_many_sentence_ends():
+    block = "Ab. " * _text.MAX_REPLY_CHARS  # far beyond the reply cap
+    assert _elapsed(_text.split_sentences, block) < _SLOW

@@ -366,23 +366,31 @@ def _voice_for(detected: str, base_voice: str) -> str:
 
 
 def _language_runs(raw: str, previous):
-    """Yield (run_text, short_lang) for consecutive blocks sharing a detected language.
+    """Yield (run_text, short_lang) for consecutive sentences sharing a detected language.
 
-    `previous` seeds the first detection and is carried forward, so a low-signal
-    block keeps the language of the block before it. Fenced code is ignored for
-    detection (it is not read aloud), so a code block inherits the surrounding
-    language and its spoken placeholder matches. Consecutive blocks with the same
-    language are joined into one run so their chunks merge as before.
+    Each block is split into sentences (`text.split_sentences`: list items,
+    headings, tables and fenced code stay whole) and each sentence's language is
+    detected. `previous` seeds the first detection and is carried forward, so a
+    low-signal sentence keeps the language of the one before it. Fenced and
+    inline code are ignored for detection (they are not read as prose), so code
+    inherits the surrounding language. Consecutive sentences with the same
+    language are rejoined into one run: sentences of one block are concatenated
+    back exactly and blocks are joined by a blank line, so a monolingual reply is
+    one run with the same text as before and its chunks merge as before.
     """
     runs: list[list[str]] = []
     run_langs: list[str] = []
     for block in text.split_blocks(raw):
-        previous = lang.detect_lang(text.without_fenced_code(block), previous)
-        if run_langs and run_langs[-1] == previous:
-            runs[-1].append(block)
-        else:
-            runs.append([block])
-            run_langs.append(previous)
+        for index, piece in enumerate(text.split_sentences(block)):
+            previous = lang.detect_lang(text.without_fenced_code(piece), previous)
+            if run_langs and run_langs[-1] == previous:
+                if index:  # same block as the run's last piece: rejoin it exactly
+                    runs[-1][-1] += piece
+                else:
+                    runs[-1].append(piece)
+            else:
+                runs.append([piece])
+                run_langs.append(previous)
     for blocks, short in zip(runs, run_langs):
         yield "\n\n".join(blocks), short
 
@@ -391,7 +399,7 @@ def _plan_chunks(args, raw: str, cfg: dict):
     """Return (chunk_texts, plans) where plans[i] is the (voice, engine_lang) for chunk i.
 
     With an explicit --lang the whole reply keeps one voice/lang and no detection
-    runs, so existing callers are unchanged. Without --lang, each block's language
+    runs, so existing callers are unchanged. Without --lang, each sentence's language
     is detected (seeded from the configured language and carried forward), and each
     run is normalized and chunked in its own language. The reply length cap is
     applied once to the whole reply, not per run, and a cut reply ends with one
