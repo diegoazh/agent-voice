@@ -35,7 +35,9 @@ DOT_WORD_EN = " dot "
 _SENTENCE_END = ".!?…"
 _TERMINAL = _SENTENCE_END + ":;"
 _CLOSERS = "\"'”’»)]}"
-_FENCE = re.compile(r"^\s*(```|~~~)")
+# The whole opening run is captured: a fence closes only on a run of the same
+# character at least as long (see `_closes_fence`), so ```` can wrap ```.
+_FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
 _INLINE_CODE = re.compile(r"`[^`\n]+`")
 MAX_IDENTIFIER_CHARS = 40
 _IDENTIFIER = re.compile(r"[\w.\-]+(?:\(\))?")
@@ -170,7 +172,7 @@ def _replace_fences(text: str, voc: dict) -> str:
                 out.append(voc["code_sentence"])
             else:
                 out.append(line)
-        elif match and match.group(1) == fence:
+        elif _closes_fence(line, fence):
             fence = None
     return "\n".join(out)
 
@@ -395,7 +397,7 @@ def split_blocks(text: str) -> list[str]:
                 current.append(line)
         else:
             current.append(line)
-            if match and match.group(1) == fence:
+            if _closes_fence(line, fence):
                 fence = None
     if current:
         blocks.append("\n".join(current))
@@ -418,7 +420,7 @@ def without_fenced_code(text: str) -> str:
                 fence = match.group(1)
             else:
                 out.append(line)
-        elif match and match.group(1) == fence:
+        elif _closes_fence(line, fence):
             fence = None
     return "\n".join(out)
 
@@ -522,8 +524,9 @@ def split_sentences(block: str) -> list[str]:
 
 
 def _closes_fence(line: str, fence: str) -> bool:
+    """True when `line` closes the code block opened by the `fence` run (CommonMark)."""
     match = _FENCE.match(line)
-    return bool(match) and match.group(1) == fence
+    return bool(match) and match.group(1)[0] == fence[0] and len(match.group(1)) >= len(fence)
 
 
 def cap_reply(text: str) -> tuple[str, bool]:
