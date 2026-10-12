@@ -1,5 +1,6 @@
 // Flashes a short text on screen like a key-press visualizer, then exits.
 // Usage: osd "<text>"  (visible ~1 s, fades out ~0.3 s)
+// One at a time: a newer instance makes older ones exit. Hard deadline: always gone within 3 s.
 import AppKit
 
 let text = CommandLine.arguments.dropFirst().joined(separator: " ")
@@ -7,6 +8,27 @@ if text.isEmpty { exit(0) }
 
 let visibleSeconds = 1.0
 let fadeSeconds = 0.3
+let hardDeadlineSeconds = 3.0
+
+// Hard deadline, independent of any animation callback.
+DispatchQueue.main.asyncAfter(deadline: .now() + hardDeadlineSeconds) { exit(0) }
+
+// Single instance: announce ourselves, and quit when a newer instance announces itself.
+// Distributed notifications avoid PID files (no stale files, no PID-reuse races). The start
+// time rides along so a late-delivered notification from an older instance can never make
+// a newer one quit.
+let dismissName = Notification.Name("dev.agent-voice.osd.dismiss")
+let center = DistributedNotificationCenter.default()
+let startedAt = Date().timeIntervalSince1970
+let myPid = String(ProcessInfo.processInfo.processIdentifier)
+
+center.addObserver(forName: dismissName, object: nil, queue: .main) { note in
+    guard let theirPid = note.object as? String, theirPid != myPid,
+          let theirStart = note.userInfo?["startedAt"] as? Double else { return }
+    if theirStart > startedAt || (theirStart == startedAt && theirPid > myPid) { exit(0) }
+}
+center.postNotificationName(dismissName, object: myPid,
+                            userInfo: ["startedAt": startedAt], deliverImmediately: true)
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)

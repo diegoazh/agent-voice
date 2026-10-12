@@ -424,3 +424,57 @@ def test_foreign_hook_survives_install_and_uninstall(tmp_path, command):
     assert read(tmp_path)["hooks"]["Stop"] == [entry(command), entry()]
     assert main(["uninstall", "claude", "--config-dir", str(tmp_path)]) == 0
     assert read(tmp_path)["hooks"]["Stop"] == [entry(command)]
+
+
+@pytest.fixture
+def osd_build(monkeypatch, tmp_path):
+    from agent_voice import cli
+
+    monkeypatch.delenv("AGENT_VOICE_OSD", raising=False)
+    state = {"calls": 0, "error": None}
+
+    def build():
+        state["calls"] += 1
+        if state["error"]:
+            raise cli.osd.BuildError(state["error"])
+        return tmp_path / "osd-abc"
+
+    monkeypatch.setattr(cli.osd, "build", build)
+    return state
+
+
+def test_install_also_builds_the_osd_and_reports_the_path(tmp_path, capsys, osd_build):
+    assert main(["install", "claude", "--config-dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert osd_build["calls"] == 1
+    assert out.splitlines()[-1] == f"osd: built {tmp_path / 'osd-abc'}"
+
+
+def test_install_survives_a_failed_osd_build(tmp_path, capsys, osd_build):
+    osd_build["error"] = "compile failed"
+    assert main(["install", "claude", "--config-dir", str(tmp_path)]) == 0
+    captured = capsys.readouterr()
+    assert read(tmp_path) == {"hooks": {"Stop": [entry()]}}
+    assert captured.out.splitlines()[-1] == "osd: compile failed; run `agent-voice osd build` later"
+
+
+def test_install_survives_an_unexpected_osd_error(tmp_path, osd_build, monkeypatch):
+    from agent_voice import cli
+
+    def boom():
+        raise RuntimeError("x")
+
+    monkeypatch.setattr(cli.osd, "build", boom)
+    assert main(["install", "claude", "--config-dir", str(tmp_path)]) == 0
+
+
+def test_failed_install_does_not_build_the_osd(tmp_path, osd_build):
+    (tmp_path / "settings.json").write_text("{not json")
+    assert main(["install", "claude", "--config-dir", str(tmp_path)]) == 1
+    assert osd_build["calls"] == 0
+
+
+def test_install_skips_the_osd_when_disabled(tmp_path, osd_build, monkeypatch):
+    monkeypatch.setenv("AGENT_VOICE_OSD", "0")
+    assert main(["install", "claude", "--config-dir", str(tmp_path)]) == 0
+    assert osd_build["calls"] == 0

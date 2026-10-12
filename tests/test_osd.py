@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 import types
@@ -52,34 +53,86 @@ def fakes(monkeypatch, tmp_path):
     return f
 
 
-def test_first_show_compiles_into_cache_and_spawns_detached(fakes):
+def test_show_never_compiles_and_is_silent_without_a_binary(fakes):
+    osd.show("x")
+    assert fakes.compiles == [] and fakes.spawns == []
+
+
+def test_show_spawns_the_built_binary_detached(fakes):
+    path = osd.build()
     osd.show("⏩ 1.5x")
-    (argv, _), = fakes.compiles
-    assert argv[:2] == ["/usr/bin/swiftc", "-O"]
-    assert str(fakes.src) in argv
     (spawn_argv, kwargs), = fakes.spawns
-    assert spawn_argv[1:] == ["⏩ 1.5x"]
-    assert spawn_argv[0].startswith(str(fakes.cache / "osd-"))
+    assert spawn_argv == [str(path), "⏩ 1.5x"]
+    assert path.parent == fakes.cache and path.name.startswith("osd-")
     assert kwargs["start_new_session"] is True
     assert kwargs["stdin"] == subprocess.DEVNULL
     assert kwargs["stdout"] == subprocess.DEVNULL
     assert kwargs["stderr"] == subprocess.DEVNULL
-    assert [p.name for p in fakes.cache.iterdir()] == [spawn_argv[0].rsplit("/", 1)[1]]
 
 
-def test_cached_binary_is_reused_without_recompiling(fakes):
-    osd.show("a")
-    osd.show("b")
-    assert len(fakes.compiles) == 1
-    assert [s[0][1] for s in fakes.spawns] == ["a", "b"]
+def test_build_compiles_once_and_reuses_the_cached_binary(fakes):
+    first = osd.build()
+    second = osd.build()
+    assert first == second and len(fakes.compiles) == 1
+    (argv, _), = fakes.compiles
+    assert argv[:2] == ["/usr/bin/swiftc", "-O"] and str(fakes.src) in argv
+    assert [p.name for p in fakes.cache.iterdir()] == [first.name]
+    assert os.access(first, os.X_OK)
 
 
-def test_changed_source_rebuilds_under_a_new_name(fakes):
-    osd.show("a")
+def test_changed_source_needs_a_new_build(fakes):
+    old = osd.build()
     fakes.src.write_text("// v2")
-    osd.show("b")
-    assert len(fakes.compiles) == 2
-    assert fakes.spawns[0][0][0] != fakes.spawns[1][0][0]
+    osd.show("stale")
+    assert fakes.spawns == []
+    assert osd.build() != old
+
+
+def test_build_without_swiftc_explains_how_to_get_it(fakes, monkeypatch):
+    monkeypatch.setattr(osd.shutil, "which", lambda name: None)
+    with pytest.raises(osd.BuildError, match="xcode-select --install"):
+        osd.build()
+    assert fakes.compiles == []
+
+
+def test_build_failure_reports_compile_failed_and_leaves_no_files(fakes):
+    fakes.compile_rc = 1
+    with pytest.raises(osd.BuildError, match="compile failed"):
+        osd.build()
+    assert list(fakes.cache.iterdir()) == []
+
+
+def test_build_timeout_is_reported(fakes):
+    fakes.compile_error = subprocess.TimeoutExpired("swiftc", 1)
+    with pytest.raises(osd.BuildError, match="timed out"):
+        osd.build()
+
+
+def test_build_oserror_is_reported(fakes):
+    fakes.compile_error = OSError("boom")
+    with pytest.raises(osd.BuildError, match="boom"):
+        osd.build()
+
+
+def test_build_that_produces_nothing_fails(fakes):
+    fakes.compile_writes = False
+    with pytest.raises(osd.BuildError):
+        osd.build()
+    assert list(fakes.cache.iterdir()) == []
+
+
+def test_build_with_unwritable_cache_fails(fakes, tmp_path, monkeypatch):
+    blocker = tmp_path / "blocker"
+    blocker.write_text("file")
+    monkeypatch.setenv("AGENT_VOICE_HOME", str(blocker))
+    with pytest.raises(osd.BuildError):
+        osd.build()
+
+
+def test_build_off_macos_fails(fakes, monkeypatch):
+    monkeypatch.setattr(osd.sys, "platform", "linux")
+    with pytest.raises(osd.BuildError, match="macOS"):
+        osd.build()
 
 
 @pytest.mark.parametrize("value", ["0", "off", "false", "no"])
@@ -95,50 +148,15 @@ def test_not_macos_does_nothing(fakes, monkeypatch):
     assert fakes.compiles == [] and fakes.spawns == []
 
 
-def test_missing_swiftc_does_nothing_when_not_cached(fakes, monkeypatch):
-    monkeypatch.setattr(osd.shutil, "which", lambda name: None)
-    osd.show("x")
-    assert fakes.compiles == [] and fakes.spawns == []
-
-
-def test_cached_binary_still_spawns_without_swiftc(fakes, monkeypatch):
-    osd.show("a")
+def test_built_binary_still_spawns_without_swiftc(fakes, monkeypatch):
+    osd.build()
     monkeypatch.setattr(osd.shutil, "which", lambda name: None)
     osd.show("b")
-    assert len(fakes.spawns) == 2
-
-
-def test_compile_failure_is_silent_and_leaves_no_files(fakes):
-    fakes.compile_rc = 1
-    osd.show("x")
-    assert fakes.spawns == []
-    assert list(fakes.cache.iterdir()) == []
-
-
-@pytest.mark.parametrize(
-    "error", [OSError("boom"), subprocess.TimeoutExpired("swiftc", 1)]
-)
-def test_compile_exception_is_silent(fakes, error):
-    fakes.compile_error = error
-    osd.show("x")
-    assert fakes.spawns == []
-
-
-def test_compile_that_produces_nothing_is_silent(fakes):
-    fakes.compile_writes = False
-    osd.show("x")
-    assert fakes.spawns == []
-
-
-def test_unwritable_cache_is_silent(fakes, tmp_path, monkeypatch):
-    blocker = tmp_path / "blocker"
-    blocker.write_text("file")
-    monkeypatch.setenv("AGENT_VOICE_HOME", str(blocker))
-    osd.show("x")
-    assert fakes.spawns == []
+    assert len(fakes.spawns) == 1
 
 
 def test_spawn_failure_is_silent(fakes):
+    osd.build()
     fakes.spawn_error = OSError("nope")
     osd.show("x")
 
@@ -147,9 +165,14 @@ def test_missing_source_is_silent(fakes):
     fakes.src.unlink()
     osd.show("x")
     assert fakes.spawns == []
+    with pytest.raises(osd.BuildError):
+        osd.build()
 
 
 def test_shipped_swift_source_exists_and_takes_text_from_argv():
     text = osd.SOURCE.read_text()
     assert "CommandLine.arguments" in text
+    # Single-instance + hard deadline live in Swift (not unit-testable from Python).
+    assert "DistributedNotificationCenter" in text
+    assert "exit(0)" in text and "hardDeadlineSeconds" in text
     assert sys.platform  # the source itself is only compiled by opt-in checks

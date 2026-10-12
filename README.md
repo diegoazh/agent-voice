@@ -91,7 +91,7 @@ echo "$(your stuff) $(agent-voice statusline)"
 
 `agent-voice speed up|down` and `agent-voice volume up|down` (what the hotkeys run) flash the new value on screen for about a second, e.g. `⏩ 1.5x` or `🔊 1.2`, also when the value is already at its limit. The bare `speed` / `volume` forms show nothing.
 
-The display is a small native helper that is compiled the first time it is needed, so it requires `swiftc` (Xcode Command Line Tools: `xcode-select --install`); the first up/down takes a few seconds, later ones are instant. The binary is cached under `~/.config/agent-voice/osd/`. If `swiftc` is missing or anything fails, the command still works and just shows nothing. Set `AGENT_VOICE_OSD=0` to turn it off.
+The display is a small native helper that must be built once, so it requires `swiftc` (Xcode Command Line Tools: `xcode-select --install`). Run `agent-voice osd build` (it also happens as the last step of `agent-voice install`, which never fails because of it). The command prints the binary path, which is cached under `~/.config/agent-voice/osd/`; if the build fails it prints the reason and exits non-zero. Until the binary exists, or if anything goes wrong, the hotkeys still work and just skip the display; they never compile anything themselves. After upgrading agent-voice, run `agent-voice osd build` again if the helper changed. A new display replaces one that is still on screen, and the helper always exits within 3 seconds. Set `AGENT_VOICE_OSD=0` to turn it off.
 
 ## Privacy
 

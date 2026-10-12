@@ -1831,3 +1831,36 @@ def test_show_only_and_invalid_forms_do_not_flash(home, shown):
     main(["speed", "sideways"])
     main(["volume", "sideways"])
     assert shown == []
+
+
+@pytest.fixture
+def fake_build(monkeypatch, tmp_path):
+    state = {"calls": 0, "error": None, "path": tmp_path / "osd-abc"}
+
+    def build():
+        state["calls"] += 1
+        if state["error"]:
+            raise cli.osd.BuildError(state["error"])
+        return state["path"]
+
+    monkeypatch.setattr(cli.osd, "build", build)
+    return state
+
+
+def test_osd_build_prints_the_binary_path(fake_build, capsys):
+    assert main(["osd", "build"]) == 0
+    captured = capsys.readouterr()
+    assert captured.out == f"{fake_build['path']}\n" and captured.err == ""
+
+
+def test_osd_build_failure_prints_one_line_reason_and_fails(fake_build, capsys):
+    fake_build["error"] = "swiftc not found; run `xcode-select --install`"
+    assert main(["osd", "build"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "agent-voice: osd build failed: swiftc not found; run `xcode-select --install`\n"
+
+
+def test_osd_needs_an_action():
+    with pytest.raises(SystemExit):
+        main(["osd"])
