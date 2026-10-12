@@ -1774,3 +1774,25 @@ def test_language_runs_join_a_cross_block_run_with_a_blank_line():
 def test_spanish_lines_with_phrasal_loanwords_keep_the_spanish_voice(raw):
     _, plans = _plan(raw)
     assert plans and set(plans) == {ES}
+
+
+def test_statusline_enabled_prints_volume_and_speed(home, capsys):
+    config.save({"enabled": True, "volume": 2.0, "speed": 1.25})
+    assert main(["statusline"]) == 0
+    assert capsys.readouterr().out == "🔊 2.0 ⏩ 1.25x\n"
+
+
+def test_statusline_disabled_prints_voice_off(home, capsys):
+    config.save({"enabled": False, "volume": 2.0, "speed": 1.25})
+    assert main(["statusline"]) == 0
+    assert capsys.readouterr().out == "🔇 voice off\n"
+
+
+def test_statusline_prints_nothing_and_exits_zero_when_config_fails(home, monkeypatch, capsys):
+    def boom():
+        raise OSError("unreadable")
+
+    monkeypatch.setattr(config, "load", boom)
+    assert main(["statusline"]) == 0
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err == ""
