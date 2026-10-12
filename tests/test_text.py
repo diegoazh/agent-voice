@@ -877,3 +877,56 @@ def test_clean_does_not_read_code_inside_a_long_fence():
     assert "print" not in out
     assert out.count(_text.CODE_SENTENCE) == 1
     assert "Listo." in out
+
+
+# 9. "#N" references (issues / PRs) are spoken as "número N" / "number N"
+
+@pytest.mark.parametrize(
+    "raw, es, en",
+    [
+        ("Cerré #223.", "Cerré número 223.", "Cerré number 223."),
+        ("Ver PR #12, listo.", "Ver PR número 12, listo.", "Ver PR number 12, listo."),
+        ("Fix (#7) merged.", "Fix (número 7) merged.", "Fix (number 7) merged."),
+        ("#223 está listo.", "número 223 está listo.", "number 223 está listo."),
+        ("Issues #1 y #22.", "Issues número 1 y número 22.", "Issues number 1 y number 22."),
+    ],
+)
+def test_hash_number_reference_is_spoken_per_language(raw, es, en):
+    assert clean(raw) == es
+    assert clean(raw, lang="es") == es
+    assert clean(raw, lang="en") == en
+
+
+def test_hash_number_inside_inline_code_is_spoken_like_prose():
+    assert clean("Cerré `#223`.") == "Cerré número 223."
+    assert clean("Closed `#223`.", lang="en") == "Closed number 223."
+
+
+@pytest.mark.parametrize(
+    "raw, out",
+    [
+        ("Agregá #include arriba.", "Agregá #include arriba."),
+        ("Color #fff y #1a2b3c.", "Color #fff y #1a2b3c."),
+        ("a#1 y b#22.", "a#1 y b#22."),
+        ("Mirá ##12 acá.", "Mirá ##12 acá."),
+        ("Usá C# siempre.", "Usá C# siempre."),
+    ],
+)
+def test_hash_is_left_alone_outside_number_references(raw, out):
+    assert clean(raw) == out
+
+
+def test_hash_in_url_fragment_is_not_read_as_number():
+    out = clean("Ver https://x.dev/y#12 hoy.")
+    assert out == f"Ver {LINK} hoy."
+    assert "número" not in out
+
+
+def test_markdown_heading_with_number_is_still_a_heading():
+    assert clean("# 223 cosas\n\nTexto.") == "223 cosas. Texto."
+
+
+def test_hash_number_in_fenced_code_is_not_read():
+    out = clean("```\nfix #223\n```\nListo.")
+    assert "223" not in out
+    assert out == f"{CODE} Listo."
