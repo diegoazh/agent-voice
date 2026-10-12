@@ -1796,3 +1796,38 @@ def test_statusline_prints_nothing_and_exits_zero_when_config_fails(home, monkey
     assert main(["statusline"]) == 0
     captured = capsys.readouterr()
     assert captured.out == "" and captured.err == ""
+
+
+@pytest.fixture
+def shown(monkeypatch):
+    calls = []
+    monkeypatch.setattr(cli.osd, "show", calls.append)
+    return calls
+
+
+def test_speed_up_and_down_flash_the_new_value(home, shown):
+    main(["speed", "up"])
+    main(["speed", "up"])
+    main(["speed", "down"])
+    assert shown == ["⏩ 1.25x", "⏩ 1.5x", "⏩ 1.25x"]
+
+
+def test_volume_up_and_down_flash_the_new_value(home, shown):
+    main(["volume", "down"])
+    main(["volume", "up"])
+    assert shown == ["🔊 0.9", "🔊 1.0"]
+
+
+def test_clamped_speed_and_volume_still_flash(home, shown):
+    main(["speed", "down"])
+    config.save({"volume": 2.0})
+    main(["volume", "up"])
+    assert shown == ["⏩ 1.0x", "🔊 2.0"]
+
+
+def test_show_only_and_invalid_forms_do_not_flash(home, shown):
+    main(["speed"])
+    main(["volume"])
+    main(["speed", "sideways"])
+    main(["volume", "sideways"])
+    assert shown == []

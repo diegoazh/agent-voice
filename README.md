@@ -87,6 +87,12 @@ agent-voice never edits Claude Code settings or your status-line script. To show
 echo "$(your stuff) $(agent-voice statusline)"
 ```
 
+## On-screen display
+
+`agent-voice speed up|down` and `agent-voice volume up|down` (what the hotkeys run) flash the new value on screen for about a second, e.g. `⏩ 1.5x` or `🔊 1.2`, also when the value is already at its limit. The bare `speed` / `volume` forms show nothing.
+
+The display is a small native helper that is compiled the first time it is needed, so it requires `swiftc` (Xcode Command Line Tools: `xcode-select --install`); the first up/down takes a few seconds, later ones are instant. The binary is cached under `~/.config/agent-voice/osd/`. If `swiftc` is missing or anything fails, the command still works and just shows nothing. Set `AGENT_VOICE_OSD=0` to turn it off.
+
 ## Privacy
 
 Everything runs locally. The only network access is `agent-voice download`, which fetches the model files.

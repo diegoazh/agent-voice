@@ -50,6 +50,8 @@ def _isolated_environment(request, tmp_path_factory, monkeypatch):
     avhome = root / "avhome"
     avhome.mkdir()
     monkeypatch.setenv("AGENT_VOICE_HOME", str(avhome))
+    # Never pop a real window or run swiftc from tests; test_osd.py injects fakes.
+    monkeypatch.setenv("AGENT_VOICE_OSD", "0")
     if request.node.get_closest_marker("integration"):
         if _REAL_MODELS_DIR.is_dir():
             (avhome / "models").symlink_to(_REAL_MODELS_DIR)

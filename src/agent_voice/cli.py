@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import sys
 
-from agent_voice import __version__, config, focus, herdr, lang, models, player, text, waiter
+from agent_voice import __version__, config, focus, herdr, lang, models, osd, player, text, waiter
 
 
 def _build_parser():
@@ -225,6 +225,7 @@ def _cmd_volume(args) -> int:
     delta = config.VOLUME_STEP if args.direction == "up" else -config.VOLUME_STEP
     new = round(min(max(current + delta, config.MIN_VOLUME), config.MAX_VOLUME), 2)
     config.save({"volume": new})
+    osd.show(f"🔊 {new}")
     print(new)
     return 0
 
@@ -240,6 +241,7 @@ def _cmd_speed(args) -> int:
     delta = config.STEP if args.direction == "up" else -config.STEP
     new = round(min(max(current + delta, config.MIN_SPEED), config.MAX_SPEED), 2)
     config.save({"speed": new})
+    osd.show(f"⏩ {new}x")
     print(new)
     return 0
 
