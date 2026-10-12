@@ -61,6 +61,7 @@ _OPERATOR_WORDS = {
     "=": " igual a ",
     "/": " barra ",
 }
+NUMBER_WORD = "número"
 _OPERATOR_WORDS_EN = {
     "==": " equals ",
     "!=": " not equal to ",
@@ -74,6 +75,7 @@ _OPERATOR_WORDS_EN = {
     "=": " equals ",
     "/": " slash ",
 }
+NUMBER_WORD_EN = "number"
 # Per-language spoken vocabulary. Normalization selects one of these and reads
 # every symbol/placeholder for a chunk through it, so Spanish and English chunks
 # never borrow each other's words. Spanish is the default everywhere.
@@ -86,6 +88,7 @@ _VOCAB = {
         "link_inline": LINK_INLINE,
         "dot": DOT_WORD,
         "operators": _OPERATOR_WORDS,
+        "number": NUMBER_WORD,
     },
     "en": {
         "truncated": TRUNCATED_NOTICE_EN,
@@ -95,6 +98,7 @@ _VOCAB = {
         "link_inline": LINK_INLINE_EN,
         "dot": DOT_WORD_EN,
         "operators": _OPERATOR_WORDS_EN,
+        "number": NUMBER_WORD_EN,
     },
 }
 DEFAULT_LANG = "es"
@@ -123,6 +127,9 @@ MAX_TABLE_COLUMNS = 4
 MAX_TABLE_ROWS = 8
 # Hex strings of 7+ chars that mix digits and a-f letters (commit SHAs, digests).
 _HASH = re.compile(r"\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,64}\b", re.IGNORECASE)
+# "#223" issue/PR references: a standalone "#" + digits. Not mid-word ("a#1"),
+# not after another "#", and not followed by a word char ("#1a2b3c", "#123abc").
+_NUMBER_REF = re.compile(r"(?<![\w#])#(\d+)(?!\w)")
 _SPACE_BEFORE_PUNCT = re.compile(r"\s+([.,;:!?…])")
 _DECORATIVE = frozenset("•·●○■□▪▫→←↑↓↔⇒⇐")
 _MD_LINK = re.compile(rf"\[([^\]\n]{{0,{_SPAN}}})\]\([^)\n]{{0,{_SPAN}}}\)")
@@ -189,6 +196,11 @@ def _collapse_repeats(text: str, voc: dict) -> str:
     return text
 
 
+def _speak_number_refs(text: str, voc: dict) -> str:
+    """Read each standalone "#223" reference as "número 223" / "number 223"."""
+    return _NUMBER_REF.sub(lambda m: f"{voc['number']} {m.group(1)}", text)
+
+
 def _speak_identifier(token: str, voc: dict) -> str:
     """Speak an identifier: drop "()", dots become the dot word, "_" and "-" become spaces."""
     token = token.removesuffix("()")
@@ -232,6 +244,8 @@ def _inline_code(line: str, voc: dict) -> str:
         body = match.group(0)[1:-1]
         if _URL.search(body):
             return voc["link_inline"]
+        if _NUMBER_REF.fullmatch(body):
+            return _speak_number_refs(body, voc)
         if len(body) <= MAX_IDENTIFIER_CHARS:
             if _SLASH_PAIR.fullmatch(body):
                 return body
@@ -271,6 +285,7 @@ def _inline(line: str, voc: dict) -> str:
     line = _HTML_TAG.sub("", line)
     line = _PATH.sub(voc["link_inline"], line)
     line = _HASH.sub("", line)
+    line = _speak_number_refs(line, voc)
     return line.strip()
 
 
