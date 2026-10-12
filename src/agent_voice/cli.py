@@ -69,6 +69,9 @@ def _build_parser():
     keys.add_argument("target")
     hook = sub.add_parser("hook", help="agent hook entry point (reads the agent's JSON on stdin)")
     hook.add_argument("agent", choices=["claude"])
+    osd_cmd = sub.add_parser("osd", help="manage the on-screen display helper")
+    osd_sub = osd_cmd.add_subparsers(dest="osd_action", required=True)
+    osd_sub.add_parser("build", help="compile the helper once (needs swiftc); hotkeys skip the display until then")
     for name, helptext in (("install", "register the hook"), ("uninstall", "remove the hook")):
         cmd = sub.add_parser(name, help=f"{helptext} for an agent")
         cmd.add_argument("agent", choices=["claude"])
@@ -653,7 +656,32 @@ def _run_claude(args, action: str) -> int:
 
 
 def _cmd_install(args) -> int:
-    return _run_claude(args, "install")
+    code = _run_claude(args, "install")
+    if code == 0:
+        _install_osd()
+    return code
+
+
+def _install_osd() -> None:
+    """Best effort: one extra line, never changes install's outcome."""
+    try:
+        if not osd.enabled():
+            return
+        try:
+            print(f"osd: built {osd.build()}")
+        except osd.BuildError as exc:
+            print(f"osd: {exc}; run `agent-voice osd build` later")
+    except Exception:
+        pass
+
+
+def _cmd_osd(args) -> int:
+    try:
+        print(osd.build())
+    except osd.BuildError as exc:
+        print(f"agent-voice: osd build failed: {exc}", file=sys.stderr)
+        return 1
+    return 0
 
 
 def _cmd_uninstall(args) -> int:
@@ -682,6 +710,7 @@ COMMANDS = {
     "pending-wait": _cmd_pending_wait,
     "status": _cmd_status,
     "statusline": _cmd_statusline,
+    "osd": _cmd_osd,
 }
 
 
