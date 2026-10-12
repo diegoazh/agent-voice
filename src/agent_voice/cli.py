@@ -19,6 +19,7 @@ def _build_parser():
     sub.add_parser("pause", help="pause or resume the current utterance")
     sub.add_parser("toggle", help="flip automatic speaking (turning it off also stops playback)")
     sub.add_parser("status", help="show settings and whether model files are present")
+    sub.add_parser("statusline", help="print one short line for a status-line script")
     voice = sub.add_parser("voice", help="show or set the default voice")
     voice.add_argument("name", nargs="?")
     lang = sub.add_parser("lang", help="show or switch the reading language (es/en)")
@@ -122,6 +123,17 @@ def _cmd_status(args) -> int:
     print(f"lang: {cfg['lang']}")
     print(f"pending wait: {_format_wait(cfg['pending_max_wait_s'])}")
     print(f"model files: {files}")
+    return 0
+
+
+def _cmd_statusline(args) -> int:
+    # Embedded in a status line that refreshes often: never raise, print one line or nothing.
+    try:
+        cfg = config.load()
+        line = f"🔊 {cfg['volume']} ⏩ {cfg['speed']}x" if cfg["enabled"] else "🔇 voice off"
+    except Exception:
+        return 0
+    print(line)
     return 0
 
 
@@ -667,6 +679,7 @@ COMMANDS = {
     "keys": _cmd_keys,
     "pending-wait": _cmd_pending_wait,
     "status": _cmd_status,
+    "statusline": _cmd_statusline,
 }
 
 

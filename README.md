@@ -55,6 +55,7 @@ Run `agent-voice --help` for the full list.
 - `say-clipboard` - speak the current clipboard contents.
 - `speak` - read text from stdin and speak it.
 - `pending-wait [DURATION|off]` - show or set how long a reply may wait for focus.
+- `statusline` - print one short line for your own status-line script (see below).
 
 **Setup**
 
@@ -75,6 +76,16 @@ Run `agent-voice --help` for the full list.
 | `ctrl+alt+c` | speak clipboard |
 | `ctrl+alt+right` | speed up |
 | `ctrl+alt+left` | speed down |
+
+## Status line
+
+`agent-voice statusline` prints a single short line: `🔊 2.0 ⏩ 1.25x` (volume and speed), or `🔇 voice off` when automatic speaking is disabled. It always exits 0 and prints nothing if the config cannot be read.
+
+agent-voice never edits Claude Code settings or your status-line script. To show it, append it yourself in your own script:
+
+```sh
+echo "$(your stuff) $(agent-voice statusline)"
+```
 
 ## Privacy
 
