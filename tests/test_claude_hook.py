@@ -11,6 +11,7 @@ from agent_voice.cli import main
 @pytest.fixture
 def home(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_VOICE_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("CLAUDE_CODE_ENTRYPOINT", raising=False)  # hermetic: tests may run inside Claude Code
     config.save({"enabled": True})
     return tmp_path
 
@@ -38,6 +39,42 @@ def test_hook_ignores_stop_hook_active(home, detached, monkeypatch, capsys):
     assert detached == []
     out = capsys.readouterr()
     assert out.out == "" and out.err == ""
+
+
+@pytest.mark.parametrize("entrypoint", ["sdk-cli", "sdk-ts", "sdk-py"])
+def test_hook_stays_silent_for_headless_sessions(home, detached, monkeypatch, capsys, entrypoint):
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", entrypoint)
+    feed(monkeypatch, {"last_assistant_message": "STATUS: PASSED"})
+    assert main(["hook", "claude"]) == 0
+    assert detached == []
+    out = capsys.readouterr()
+    assert out.out == "" and out.err == ""
+
+
+def test_hook_headless_session_never_reads_the_config(home, detached, monkeypatch, capsys):
+    loads = []  # the CLI swallows hook exceptions, so record the call instead of raising
+
+    def spy():
+        loads.append(1)
+        raise OSError("unreadable config")
+
+    monkeypatch.setattr(config, "load", spy)
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
+    feed(monkeypatch, {"last_assistant_message": "STATUS: PASSED"})
+    assert main(["hook", "claude"]) == 0
+    assert loads == []
+    assert detached == []
+    out = capsys.readouterr()
+    assert out.out == "" and out.err == ""
+
+
+@pytest.mark.parametrize("entrypoint", ["cli", "claude-vscode", "", None])
+def test_hook_speaks_interactive_or_unknown_entrypoints(home, detached, monkeypatch, entrypoint):
+    if entrypoint is not None:
+        monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", entrypoint)
+    feed(monkeypatch, {"last_assistant_message": "Hola."})
+    assert main(["hook", "claude"]) == 0
+    assert detached == ["Hola."]
 
 
 def test_hook_passes_last_assistant_message_to_detach(home, detached, monkeypatch, capsys):
