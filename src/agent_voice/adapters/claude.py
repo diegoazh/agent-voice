@@ -137,6 +137,16 @@ def _session_focused(detector):
 
 
 HOOK_FOCUS_BUDGET_S = 0.5
+HEADLESS_ENTRYPOINT_PREFIX = "sdk-"
+
+
+def _headless(env) -> bool:
+    """True for `claude -p` / SDK sessions (CLAUDE_CODE_ENTRYPOINT=sdk-cli, sdk-ts, ...).
+
+    Nobody is listening to those (e.g. a reviewer run from a git hook). Interactive entry
+    points (`cli`, IDE extensions) and an unset variable are not headless: unknown never silences.
+    """
+    return env.get("CLAUDE_CODE_ENTRYPOINT", "").startswith(HEADLESS_ENTRYPOINT_PREFIX)
 
 
 def run_hook(raw: str) -> int:
@@ -150,6 +160,8 @@ def run_hook(raw: str) -> int:
 
     payload = json.loads(raw)
     if payload.get("stop_hook_active"):
+        return 0
+    if _headless(os.environ):  # checked before the config: headless sessions never touch it
         return 0
     if not config.load()["enabled"]:
         return 0
