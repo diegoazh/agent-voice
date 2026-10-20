@@ -3,6 +3,7 @@ import io
 import os
 import sys
 import types
+from importlib import metadata
 from pathlib import Path
 
 import pytest
@@ -14,7 +15,7 @@ from agent_voice.player import AfplayPlayer
 
 def test_version_prints_and_returns_zero(capsys):
     assert main(["--version"]) == 0
-    assert capsys.readouterr().out == "agent-voice 0.1.0\n"
+    assert capsys.readouterr().out == f"agent-voice {metadata.version('agent-voice')}\n"
 
 
 def test_no_arguments_prints_nothing_and_returns_zero(capsys):
