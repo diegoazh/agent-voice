@@ -1,4 +1,5 @@
 import argparse
+import importlib
 import io
 import os
 import sys
@@ -16,6 +17,21 @@ from agent_voice.player import AfplayPlayer
 def test_version_prints_and_returns_zero(capsys):
     assert main(["--version"]) == 0
     assert capsys.readouterr().out == f"agent-voice {metadata.version('agent-voice')}\n"
+
+
+def test_version_falls_back_without_package_metadata(monkeypatch):
+    import agent_voice
+
+    def missing(name):
+        raise metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(metadata, "version", missing)
+    try:
+        importlib.reload(agent_voice)
+        assert agent_voice.__version__ == "0+unknown"
+    finally:
+        monkeypatch.undo()
+        importlib.reload(agent_voice)
 
 
 def test_no_arguments_prints_nothing_and_returns_zero(capsys):

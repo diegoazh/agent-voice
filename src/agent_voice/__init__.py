@@ -1,3 +1,6 @@
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError, version
 
-__version__ = version("agent-voice")
+try:
+    __version__ = version("agent-voice")
+except PackageNotFoundError:
+    __version__ = "0+unknown"
