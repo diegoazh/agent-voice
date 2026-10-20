@@ -10,11 +10,12 @@ results.
 ## Goals
 
 - Speak the agent's reply when it finishes a turn.
-- 100% local: no text ever leaves the machine; nothing is persisted (no
-  transcript copies, no debug logs with reply text).
+- Local: synthesis runs on the machine and the reply text is not sent anywhere
+  by agent-voice. Reply text is never persisted (no transcript copies, no debug
+  logs with reply text); synthesized audio is written briefly to temp files.
 - One installation shared by every agent and every account on the machine
   (e.g. personal `~/.claude` and work `~/.claude-work` Claude Code configs).
-- Works with several agents: Claude Code, Codex CLI, OpenCode, Pi, Gemini CLI.
+- Works with several runtimes: Claude Code, Codex CLI, OpenCode, Pi.
 - Shareable as an open-source project later.
 
 ## Decisions taken (owner, 2026-10-02)
@@ -38,8 +39,12 @@ results.
    while synthesizing N+1). A new reply cuts the previous one.
 9. **Automatic speaking** once enabled: `agent-voice on|off|status`.
 10. **Repeat**: `agent-voice repeat` re-speaks the last reply by reading the
-    agent's own stored transcript (Claude Code first; Codex, Pi, OpenCode and
-    Gemini later). agent-voice itself never persists reply text.
+    agent's own stored transcript (Claude Code first; Codex, Pi and
+    OpenCode later). agent-voice itself never persists reply text.
+11. **Gemini CLI dropped** (owner, 2026-10-20): removed from the supported runtimes
+    to keep the roadmap small and focused on Claude Code, Codex, Pi and OpenCode. Its
+    hook mechanism was researched earlier; a Gemini CLI adapter could still be
+    contributed later through the runtime contract (planned).
 
 ## Engine (research, 2026-10-02)
 
@@ -100,7 +105,6 @@ arrives. (`sounddevice`/PortAudio only if streaming is needed.)
 | Codex CLI | `notify = ["cmd", ...]` in `~/.codex/config.toml` | JSON as the last argv (`sys.argv[1]`): `type:"agent-turn-complete"`, `last-assistant-message`, `cwd`, ... | `~/.codex/config.toml` | https://learn.chatgpt.com/docs/config-file/config-advanced | Verified (docs). |
 | OpenCode | JS/TS plugin, `event` hook, `session.idle` | Event carries only `sessionID`; fetch `client.session.messages({path:{id}})`, take last `info.role==="assistant"`, join `parts` of `type:"text"` (skip `synthetic`) | `~/.config/opencode/plugins/` | https://opencode.ai/docs/plugins/, https://opencode.ai/docs/sdk/ | Mechanism verified; whether `session.idle` also fires for subagents is unknown. |
 | Pi | TS extension, `pi.on("agent_end")` (or `agent_settled`) | `event.messages`: last `role:"assistant"`, join `content` of `type:"text"` (skip `thinking`, `toolCall`) | `~/.pi/agent/extensions/` | https://github.com/earendil-works/pi (docs/extensions.md, types.ts) | Types verified; `agent_end` can fire more than once (retries/compaction) — prefer `agent_settled` if it carries what we need. Whether `pi.exec` accepts stdin is unknown. |
-| Gemini CLI | `AfterAgent` hook, JSON on stdin; must print only JSON (`{}`) to stdout | `prompt_response` | `~/.gemini/settings.json` → `hooks.AfterAgent[]` | https://github.com/google-gemini/gemini-cli (docs/hooks/reference.md) | Verified (docs). |
 
 Adapters must return immediately (run the speech in the background) and must
 never fail the agent's turn.
@@ -136,9 +140,13 @@ never fail the agent's turn.
 
 ## Privacy rules (non-negotiable)
 
-- No network at runtime; only the one-time model download, hash-verified.
-- Never write reply text to disk (no logs, no "last response" files). Temp WAV
-  files are deleted right after playback.
+- No network in agent-voice's own code except the model download
+  (`agent-voice download`), hash-verified.
+- Never write reply text to disk (no logs, no "last response" files). Synthesized
+  audio is written to temp WAV files (0600, in a 0700 directory), deleted after
+  each chunk is played; after a hard kill they can remain until a later run
+  sweeps them (src/agent_voice/player.py).
+- See docs/philosophy.md for the public statement of these rules and their limits.
 - Reviewed and rejected as-is (2026-10-02): `rhishi99/OutLoud` (default engine
   `edge-tts` sends text to Microsoft; keeps `last-response.txt`) and
   `cris-m/claude_voice` (active `debug_hook.py` appends the full reply to
