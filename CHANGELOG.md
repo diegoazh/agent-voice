@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 Versioning rule (SemVer, pre-1.0): every PR that changes behavior bumps the
 version in `pyproject.toml` and adds an entry here. `fix` -> patch, `feat` -> minor.
 
+## [0.2.1] - 2026-10-20
+
+### Fixed
+
+- Focus-gated speech works again under herdr 0.9.5, which sets `TERM_PROGRAM=herdr` in its panes: Ghostty is now also recognised by its `__CFBundleIdentifier`, so a reply from an unfocused herdr tab no longer interrupts the focused one.
+
 ## [0.2.0] - 2026-10-20
 
 ### Added
