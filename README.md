@@ -30,6 +30,27 @@ Then fetch the Kokoro model files (one-time download):
 agent-voice download
 ```
 
+## Upgrading
+
+From a local clone:
+
+```sh
+git pull --ff-only
+uv tool install --force --reinstall .
+```
+
+`--reinstall` matters because uv only rebuilds a local directory install when `pyproject.toml` (or `setup.py` / `setup.cfg`) changes, so a code-only change might not be picked up without it.
+
+From GitHub:
+
+```sh
+uv tool install --force --reinstall git+https://github.com/diegoazh/agent-voice
+```
+
+Check the result with `agent-voice --version`, and see [CHANGELOG.md](CHANGELOG.md) for what changed.
+
+You do not need to run `agent-voice install` again: the hook calls the installed `agent-voice` binary on every event, so new and already-running sessions use the new version. Run `agent-voice osd build` again only if the release notes mention a change to the on-screen display helper.
+
 ## Usage
 
 Run `agent-voice --help` for the full list.
@@ -91,7 +112,7 @@ echo "$(your stuff) $(agent-voice statusline)"
 
 `agent-voice speed up|down` and `agent-voice volume up|down` (what the hotkeys run) flash the new value on screen for about a second, e.g. `⏩ 1.5x` or `🔊 1.2`, also when the value is already at its limit. The bare `speed` / `volume` forms show nothing.
 
-The display is a small native helper that must be built once, so it requires `swiftc` (Xcode Command Line Tools: `xcode-select --install`). Run `agent-voice osd build` (it also happens as the last step of `agent-voice install`, which never fails because of it). The command prints the binary path, which is cached under `~/.config/agent-voice/osd/`; if the build fails it prints the reason and exits non-zero. Until the binary exists, or if anything goes wrong, the hotkeys still work and just skip the display; they never compile anything themselves. After upgrading agent-voice, run `agent-voice osd build` again if the helper changed. A new display replaces one that is still on screen, and the helper always exits within 3 seconds. Set `AGENT_VOICE_OSD=0` to turn it off.
+The display is a small native helper that must be built once, so it requires `swiftc` (Xcode Command Line Tools: `xcode-select --install`). Run `agent-voice osd build` (it also happens as the last step of `agent-voice install`, which never fails because of it). The command prints the binary path, which is cached under `~/.config/agent-voice/osd/`; if the build fails it prints the reason and exits non-zero. Until the binary exists, or if anything goes wrong, the hotkeys still work and just skip the display; they never compile anything themselves. After [upgrading](#upgrading), run `agent-voice osd build` again if the helper changed. A new display replaces one that is still on screen, and the helper always exits within 3 seconds. Set `AGENT_VOICE_OSD=0` to turn it off.
 
 ## Privacy
 
