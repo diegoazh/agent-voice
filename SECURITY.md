@@ -8,9 +8,16 @@ acknowledgement within a few days.
 
 ## Automated scanning
 
-- Local: `pre-commit` runs gitleaks, semgrep and bandit (see `.pre-commit-config.yaml`).
+- Local: `pre-commit` runs gitleaks, semgrep (severity ERROR) and bandit (see
+  `.pre-commit-config.yaml`). The local bandit hook has no severity filter configured.
 - CI: `.github/workflows/security.yml` runs gitleaks (full history), osv-scanner,
-  trivy, semgrep and bandit, uploading SARIF to the Security tab. HIGH/CRITICAL fail the build.
+  trivy, semgrep and bandit, uploading SARIF to the Security tab. Failure thresholds:
+  gitleaks any finding; osv-scanner known vulnerabilities; trivy HIGH/CRITICAL;
+  semgrep severity ERROR; bandit severity HIGH. These are automated gates, not an audit.
+
+This list mirrors `.github/workflows/security.yml` (and `trivy.yaml` for trivy) for CI
+and `.pre-commit-config.yaml` for the local hooks, which are the source of truth: if they
+differ from this page, they win.
 
 ## Run locally
 

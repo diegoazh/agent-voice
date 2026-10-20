@@ -17,7 +17,6 @@
 1. Pi adapter (next).
 2. Codex adapter.
 3. OpenCode adapter.
-4. Gemini CLI adapter.
 
 ## Ideas / contributions welcome
 

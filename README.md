@@ -1,8 +1,8 @@
 # agent-voice
 
-Local, privacy-first text-to-speech for coding agents, powered by [Kokoro](https://github.com/thewh1teagle/kokoro-onnx). Nothing leaves your machine.
+Local, privacy-first text-to-speech for coding agents, powered by [Kokoro](https://github.com/thewh1teagle/kokoro-onnx). Speech is synthesized on your machine, and the only network access in agent-voice's own code is the explicit model download (`agent-voice download`). See the [philosophy](docs/philosophy.md) for what that does and does not cover.
 
-**Supported agent today: Claude Code.** Codex, OpenCode, Pi, and Gemini CLI are planned but not implemented yet; see [ROADMAP.md](ROADMAP.md).
+**Supported runtime today: Claude Code.** Codex, OpenCode, and Pi are planned but not implemented yet; see [ROADMAP.md](ROADMAP.md).
 
 ## Requirements / OS support
 
@@ -102,7 +102,7 @@ Run `agent-voice --help` for the full list.
 
 `agent-voice statusline` prints a single short line: `🔊 2.0 ⏩ 1.25x` (volume and speed), or `🔇 voice off` when automatic speaking is disabled. It always exits 0 and prints nothing if the config cannot be read.
 
-agent-voice never edits Claude Code settings or your status-line script. To show it, append it yourself in your own script:
+`agent-voice statusline` edits nothing: it never touches Claude Code settings or your status-line script. (`agent-voice install claude` does edit Claude Code's `settings.json`: it adds its own `Stop` hook entry; see the [philosophy](docs/philosophy.md#3-minimal-reversible-footprint).) To show the line, append it yourself in your own script:
 
 ```sh
 echo "$(your stuff) $(agent-voice statusline)"
@@ -116,7 +116,11 @@ The display is a small native helper that must be built once, so it requires `sw
 
 ## Privacy
 
-Everything runs locally. The only network access is `agent-voice download`, which fetches the model files.
+Speech is synthesized locally. The only network access in agent-voice's own code is `agent-voice download`, which fetches the model files. Reply text is not written to disk, but synthesized audio is written briefly to temporary files. Native dependencies (onnxruntime, espeak-ng) are not audited. Details and limits: [docs/philosophy.md](docs/philosophy.md).
+
+## Philosophy
+
+Local by design, a small and reversible footprint, and no unproven claims: every statement in [docs/philosophy.md](docs/philosophy.md) points to the code or CI that backs it, and the same page lists what is not promised. Third-party licences (including GPL-3.0 components pulled in through dependencies) are in [docs/third-party-licences.md](docs/third-party-licences.md).
 
 ## Development
 
