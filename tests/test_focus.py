@@ -168,6 +168,38 @@ def test_detect_from_env_none_for_another_terminal():
     assert focus.detect_from_env({**ENV, "TERM_PROGRAM": "iTerm.app"}) is None
 
 
+HERDR_095_ENV = {
+    "TERM_PROGRAM": "herdr",
+    "TERM_PROGRAM_VERSION": "0.9.5",
+    "__CFBundleIdentifier": "com.mitchellh.ghostty",
+    "HERDR_ENV": "1",
+    "HERDR_PANE_ID": "w2N:p1",
+    "HERDR_BIN_PATH": "/opt/homebrew/bin/herdr",
+}
+
+
+def test_detect_from_env_recognises_ghostty_by_bundle_id_under_herdr_095():
+    det = focus.detect_from_env(HERDR_095_ENV)
+    assert isinstance(det, focus.HerdrGhosttyDetector)
+    assert det.pane_id == "w2N:p1"
+    assert det._herdr == "/opt/homebrew/bin/herdr"
+
+
+def test_detect_from_env_none_for_herdr_in_another_terminal_bundle():
+    env = {**HERDR_095_ENV, "__CFBundleIdentifier": "com.googlecode.iterm2"}
+    assert focus.detect_from_env(env) is None
+
+
+def test_detect_from_env_none_for_herdr_without_bundle_id_or_ghostty_term():
+    env = {k: v for k, v in HERDR_095_ENV.items() if k != "__CFBundleIdentifier"}
+    assert focus.detect_from_env(env) is None
+
+
+def test_detect_from_env_none_for_bundle_id_without_herdr_env():
+    env = {k: v for k, v in HERDR_095_ENV.items() if k != "HERDR_ENV"}
+    assert focus.detect_from_env(env) is None
+
+
 def test_default_runner_uses_a_timeout_and_captures_text(monkeypatch):
     seen = {}
 

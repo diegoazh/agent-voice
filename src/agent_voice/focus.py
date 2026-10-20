@@ -116,9 +116,14 @@ class HerdrGhosttyDetector:
 def detect_from_env(env, run=None):
     """The detector for this session, or None (no detector: speak immediately, as always).
 
-    Currently: Ghostty + herdr, recognised by TERM_PROGRAM, HERDR_ENV and HERDR_PANE_ID.
+    Currently: Ghostty + herdr, recognised by HERDR_ENV and HERDR_PANE_ID plus Ghostty,
+    which is TERM_PROGRAM == "ghostty" or, since herdr 0.9.5 overrides TERM_PROGRAM with
+    "herdr" inside its panes, the inherited __CFBundleIdentifier == GHOSTTY_BUNDLE.
     """
-    if env.get("TERM_PROGRAM") != "ghostty" or not env.get("HERDR_ENV"):
+    is_ghostty = (
+        env.get("TERM_PROGRAM") == "ghostty" or env.get("__CFBundleIdentifier") == GHOSTTY_BUNDLE
+    )
+    if not is_ghostty or not env.get("HERDR_ENV"):
         return None
     pane_id = env.get("HERDR_PANE_ID")
     if not pane_id or not herdr.valid_pane_id(pane_id):
