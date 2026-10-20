@@ -18,7 +18,7 @@ From a local checkout:
 uv tool install --force .
 ```
 
-Or straight from GitHub (placeholder URL until the repository is published):
+Or straight from GitHub:
 
 ```sh
 uv tool install git+https://github.com/diegoazh/agent-voice
