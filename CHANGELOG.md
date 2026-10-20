@@ -22,7 +22,7 @@ version in `pyproject.toml` and adds an entry here. `fix` -> patch, `feat` -> mi
 - Fenced code blocks inherit the surrounding language, and a block is closed only by a fence at least as long as its opening one (#1, #2).
 - The reply length cap is applied once per reply (#1).
 - Inline code is ignored when detecting language, and common English words that do not collide with Spanish are recognized (#2).
-- `#N` references are read as "numero N" / "number N" instead of spelling out the hash sign (#4).
+- `#N` references are read as "número N" / "number N" instead of spelling out the hash sign (#4).
 - The Claude Stop hook stays silent in headless sessions (`claude -p` / SDK) (#5).
 - Leftover bold and strikethrough markers are stripped from spoken text.
 - Only one on-screen display is shown at a time (#3).
